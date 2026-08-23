@@ -1,13 +1,6 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Redirect } from 'expo-router';
 
 export default function SOSScreen() {
-  return <View style={styles.container} />;
+  return <Redirect href="/emergency" />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-});

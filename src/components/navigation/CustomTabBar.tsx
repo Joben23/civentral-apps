@@ -1,9 +1,11 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
 export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+  const router = useRouter();
   // Only display the 5 main tabs (Home, Services, SOS, Tracker, Profile)
   const validTabNames = ['index', 'services', 'sos', 'tracker', 'profile'];
   const routesToDisplay = state.routes.filter((r) => validTabNames.includes(r.name));
@@ -21,6 +23,11 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
             target: route.key,
             canPreventDefault: true,
           });
+
+          if (isSOS && !event.defaultPrevented) {
+            router.push('/emergency' as never);
+            return;
+          }
 
           if (!isFocused && !event.defaultPrevented) {
             navigation.navigate(route.name);
@@ -41,7 +48,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
               key={route.key}
               accessibilityRole="button"
               accessibilityState={isFocused ? { selected: true } : {}}
-              accessibilityLabel={options.tabBarAccessibilityLabel}
+              accessibilityLabel="Open DRRM Emergency Hub"
               onPress={onPress}
               onLongPress={onLongPress}
               activeOpacity={0.85}

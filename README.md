@@ -23,6 +23,18 @@ In the output, you'll find options to open the app in a
 - [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
 - [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
 
+## Citizen DRRM API configuration
+
+Copy `.env.example` to `.env` and set `EXPO_PUBLIC_API_BASE_URL` to the public CIVENTRAL backend root. The mobile app appends the public citizen API path and does not require an API secret.
+
+For a backend served by XAMPP on the development PC, use:
+
+```env
+EXPO_PUBLIC_API_BASE_URL=http://<PC-LAN-IP>/civentral-drrm
+```
+
+The Expo Go phone and development PC must be on a network where the phone can reach that host. `http://localhost/civentral-drrm` will point to the phone itself and will not reach the development PC. Replace `<PC-LAN-IP>` with the PC's actual LAN address; this repository intentionally does not guess or commit that address. Ensure the local web server and firewall are configured by the developer to allow the connection.
+
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
 ## Get a fresh project

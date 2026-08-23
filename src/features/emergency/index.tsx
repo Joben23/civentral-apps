@@ -8,10 +8,11 @@ export function EmergencyDomainCard() {
     <Card variant="outlined">
       <View style={styles.header}>
         <Text style={styles.title}>Emergency, DRRM & Safety</Text>
-        <Badge label="24/7 Dispatch" variant="danger" />
+        <Badge label="5 Citizen Modules" variant="danger" />
       </View>
       <Text style={styles.desc}>
-        Real-time Hazard Risk Maps, Disaster Relief Tracker & Instant SOS Dispatch Logging.
+        Emergency warnings, hazard and evacuation information, relief services, incident reporting,
+        and barangay DRRM coordination for Caloocan City.
       </Text>
     </Card>
   );

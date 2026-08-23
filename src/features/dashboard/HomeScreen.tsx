@@ -226,6 +226,25 @@ export function HomeScreen() {
           </View>
         </View>
 
+        {/* PUBLIC DRRM WARNINGS */}
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Open active emergency warnings"
+          style={styles.emergencyWarningsCard}
+          onPress={() => router.push('/emergency/warnings' as any)}
+          activeOpacity={0.84}>
+          <View style={styles.emergencyWarningsIcon}>
+            <IconSymbol name="exclamationmark.triangle.fill" size={22} color="#B91C1C" />
+          </View>
+          <View style={styles.emergencyWarningsCopy}>
+            <Text style={styles.emergencyWarningsTitle}>Emergency Alerts</Text>
+            <Text style={styles.emergencyWarningsSub}>
+              View active CIVENTRAL DRRM warnings for Caloocan City
+            </Text>
+          </View>
+          <IconSymbol name="chevron.right" size={18} color="#B91C1C" />
+        </TouchableOpacity>
+
         {/* SECTION 3: 6 QUICK SERVICES GRID (6TH IS SEE ALL SERVICES) */}
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionHeaderLeft}>
@@ -636,6 +655,41 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 14,
     fontWeight: '700',
+  },
+
+  /* Public Emergency Warnings */
+  emergencyWarningsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF7F7',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 20,
+  },
+  emergencyWarningsIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emergencyWarningsCopy: {
+    flex: 1,
+    marginHorizontal: 11,
+  },
+  emergencyWarningsTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  emergencyWarningsSub: {
+    fontSize: 11,
+    color: '#64748B',
+    lineHeight: 16,
+    marginTop: 2,
   },
 
   /* Section Titles */

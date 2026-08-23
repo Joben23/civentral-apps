@@ -40,12 +40,11 @@ export const CIVIC_DOMAINS: CivicDomainMetadata[] = [
   {
     id: 'emergency',
     title: 'Emergency, DRRM & Safety',
-    shortName: 'Emergency SOS',
-    description: 'Real-time Hazard Maps, Relief Goods Tracker & Instant Incident SOS Dispatch Log',
+    shortName: 'DRRM Emergency',
+    description: 'Emergency warnings, hazard and evacuation information, incident reporting, relief services & barangay coordination',
     icon: 'shield.fill',
     color: '#EF4444',
-    badgeCount: 2,
-    subCategories: ['Hazard Maps', 'Relief Tracker', 'Incident SOS Log'],
+    subCategories: ['Hazard & Evacuation', 'Relief Distribution', 'Incident Reporting', 'Early Warning', 'Barangay Coordination'],
   },
   {
     id: 'housing',

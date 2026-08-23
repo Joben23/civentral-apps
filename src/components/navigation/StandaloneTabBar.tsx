@@ -13,7 +13,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 const TAB_ITEMS = [
   { route: '/(tabs)/', icon: 'house.fill', label: 'Home' },
   { route: '/(tabs)/services', icon: 'square.grid.2x2.fill', label: 'Services' },
-  { route: '/(tabs)/sos', icon: 'shield.fill', label: 'SOS', isSOS: true },
+  { route: '/emergency', icon: 'shield.fill', label: 'DRRM', isSOS: true },
   { route: '/(tabs)/tracker', icon: 'doc.text.fill', label: 'Transaction' },
   { route: '/(tabs)/profile', icon: 'person.crop.circle.fill', label: 'Profile' },
 ] as const;
@@ -32,6 +32,7 @@ export function StandaloneTabBar() {
             <TouchableOpacity
               key={item.route}
               accessibilityRole="button"
+              accessibilityLabel="Open DRRM Emergency Hub"
               onPress={() => router.push(item.route as any)}
               activeOpacity={0.85}
               style={styles.sosButtonContainer}>

@@ -1,4 +1,5 @@
 import { CitizenUser } from '@/types/citizen';
+import { CITIZEN_API_BASE_URL } from '@/src/config/api';
 
 export interface AuthApiResponse {
   status: 'success' | 'otp_required' | 'error';
@@ -10,7 +11,8 @@ export interface AuthApiResponse {
   data?: any;
 }
 
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://civentral.tech/api/citizen';
+// Kept as a public export for existing citizen services.
+export const API_BASE_URL = CITIZEN_API_BASE_URL;
 
 export class AuthService {
   private static currentUserEmail: string | null = null;

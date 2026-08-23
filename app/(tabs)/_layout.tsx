@@ -32,7 +32,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="sos"
         options={{
-          title: 'SOS',
+          title: 'DRRM',
+          tabBarAccessibilityLabel: 'Open DRRM Emergency Hub',
         }}
       />
       <Tabs.Screen
