@@ -22,6 +22,9 @@ function getModuleBadge(
   if (!module.enabled) {
     return { label: 'Coming Soon', variant: 'neutral' };
   }
+  if (module.id === 'hazard-map') {
+    return { label: 'Available', variant: 'success' };
+  }
   if (warningCount === undefined) {
     return { label: 'Checking', variant: 'neutral' };
   }
@@ -133,7 +136,11 @@ export function DrrmHubScreen() {
 
                 <View style={styles.moduleFooter}>
                   <Text style={[styles.moduleAction, !module.enabled && styles.disabledAction]}>
-                    {module.enabled ? 'Open Emergency Warnings' : 'Coming Soon'}
+                    {module.enabled
+                      ? module.id === 'hazard-map'
+                        ? 'Open Hazard Map'
+                        : 'Open Emergency Warnings'
+                      : 'Coming Soon'}
                   </Text>
                   {module.enabled ? (
                     <IconSymbol name="chevron.right" size={16} color="#176B87" />
@@ -314,4 +321,3 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 });
-

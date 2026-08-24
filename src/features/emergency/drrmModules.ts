@@ -15,7 +15,7 @@ export interface DrrmHubModule {
   iconBackground: string;
   iconColor: string;
   enabled: boolean;
-  route?: '/emergency/warnings';
+  route?: '/emergency/hazard-map' | '/emergency/warnings';
 }
 
 export const DRRM_HUB_MODULES: readonly DrrmHubModule[] = [
@@ -26,7 +26,8 @@ export const DRRM_HUB_MODULES: readonly DrrmHubModule[] = [
     icon: 'location.fill',
     iconBackground: '#E0F2FE',
     iconColor: '#0284C7',
-    enabled: false,
+    enabled: true,
+    route: '/emergency/hazard-map',
   },
   {
     id: 'relief-distribution',
@@ -66,4 +67,3 @@ export const DRRM_HUB_MODULES: readonly DrrmHubModule[] = [
     enabled: false,
   },
 ];
-
