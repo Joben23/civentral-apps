@@ -25,6 +25,9 @@ function getModuleBadge(
   if (module.id === 'hazard-map') {
     return { label: 'Available', variant: 'success' };
   }
+  if (module.id === 'incident-reporting') {
+    return { label: 'Available', variant: 'success' };
+  }
   if (warningCount === undefined) {
     return { label: 'Checking', variant: 'neutral' };
   }
@@ -35,6 +38,13 @@ function getModuleBadge(
     label: `${warningCount} Active`,
     variant: warningCount > 0 ? 'danger' : 'neutral',
   };
+}
+
+function getModuleAction(module: DrrmHubModule): string {
+  if (!module.enabled) return 'Coming Soon';
+  if (module.id === 'hazard-map') return 'Open Hazard Map';
+  if (module.id === 'incident-reporting') return 'Report an Incident';
+  return 'Open Emergency Warnings';
 }
 
 export function DrrmHubScreen() {
@@ -136,11 +146,7 @@ export function DrrmHubScreen() {
 
                 <View style={styles.moduleFooter}>
                   <Text style={[styles.moduleAction, !module.enabled && styles.disabledAction]}>
-                    {module.enabled
-                      ? module.id === 'hazard-map'
-                        ? 'Open Hazard Map'
-                        : 'Open Emergency Warnings'
-                      : 'Coming Soon'}
+                    {getModuleAction(module)}
                   </Text>
                   {module.enabled ? (
                     <IconSymbol name="chevron.right" size={16} color="#176B87" />

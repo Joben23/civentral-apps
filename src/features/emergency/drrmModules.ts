@@ -15,7 +15,7 @@ export interface DrrmHubModule {
   iconBackground: string;
   iconColor: string;
   enabled: boolean;
-  route?: '/emergency/hazard-map' | '/emergency/warnings';
+  route?: '/emergency/hazard-map' | '/emergency/report-incident' | '/emergency/warnings';
 }
 
 export const DRRM_HUB_MODULES: readonly DrrmHubModule[] = [
@@ -45,7 +45,8 @@ export const DRRM_HUB_MODULES: readonly DrrmHubModule[] = [
     icon: 'doc.text.fill',
     iconBackground: '#FEF3C7',
     iconColor: '#B45309',
-    enabled: false,
+    enabled: true,
+    route: '/emergency/report-incident',
   },
   {
     id: 'early-warning',

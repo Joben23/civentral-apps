@@ -100,6 +100,7 @@ export class AuthService {
 
       const response = await fetch(`${API_BASE_URL}/login.php`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },

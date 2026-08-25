@@ -166,9 +166,15 @@ async function run() {
   assert.deepEqual(hub.DRRM_HUB_MODULES.map((module) => module.title), expectedModuleTitles);
 
   const enabledModules = hub.DRRM_HUB_MODULES.filter((module) => module.enabled);
-  assert.equal(enabledModules.length, 2);
-  assert.deepEqual(enabledModules.map((module) => module.id), ['hazard-map', 'early-warning']);
-  assert.deepEqual(enabledModules.map((module) => module.route), ['/emergency/hazard-map', '/emergency/warnings']);
+  assert.equal(enabledModules.length, 3);
+  assert.deepEqual(
+    enabledModules.map((module) => module.id),
+    ['hazard-map', 'incident-reporting', 'early-warning'],
+  );
+  assert.deepEqual(
+    enabledModules.map((module) => module.route),
+    ['/emergency/hazard-map', '/emergency/report-incident', '/emergency/warnings'],
+  );
   assert.ok(
     hub.DRRM_HUB_MODULES.filter((module) => !module.enabled).every((module) => module.route === undefined),
   );
