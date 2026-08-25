@@ -9,8 +9,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test:drrm": "node scripts/test-drrm-warnings.cjs && node scripts/test-drrm-incidents.cjs",
-    "test:drrm:incidents": "node scripts/test-drrm-incidents.cjs"
+    "test:drrm": "node scripts/test-drrm-warnings.cjs && node scripts/test-drrm-incidents.cjs && node scripts/test-drrm-notifications.cjs",
+    "test:drrm:incidents": "node scripts/test-drrm-incidents.cjs",
+    "test:drrm:notifications": "node scripts/test-drrm-notifications.cjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

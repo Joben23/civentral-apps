@@ -503,8 +503,10 @@ export function ProfileScreen() {
 
               <View style={styles.settingRow}>
                 <View style={styles.settingTextStack}>
-                  <Text style={styles.settingLabel}>City Push Notifications</Text>
-                  <Text style={styles.settingSub}>Receive updates on civic services & announcements</Text>
+                  <Text style={styles.settingLabel}>City In-App Notifications</Text>
+                  <Text style={styles.settingSub}>
+                    Preference for civic updates shown inside CIVENTRAL; phone push is not enabled
+                  </Text>
                 </View>
                 <Switch
                   value={pushNotificationsEnabled}
@@ -518,8 +520,10 @@ export function ProfileScreen() {
 
               <View style={styles.settingRow}>
                 <View style={styles.settingTextStack}>
-                  <Text style={styles.settingLabel}>Emergency SOS Broadcasts</Text>
-                  <Text style={styles.settingSub}>Receive real-time disaster & emergency warnings</Text>
+                  <Text style={styles.settingLabel}>Emergency In-App Alerts</Text>
+                  <Text style={styles.settingSub}>
+                    Preference for emergency alerts shown inside CIVENTRAL; phone push is not enabled
+                  </Text>
                 </View>
                 <Switch
                   value={sosAlertsEnabled}

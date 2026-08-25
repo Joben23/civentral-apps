@@ -1,5 +1,6 @@
 import { CitizenUser } from '@/types/citizen';
 import { CITIZEN_API_BASE_URL } from '@/src/config/api';
+import { resetCitizenIncidentNotificationState } from '@/src/services/drrmIncidentNotifications';
 
 export interface AuthApiResponse {
   status: 'success' | 'otp_required' | 'error';
@@ -41,6 +42,7 @@ export class AuthService {
     this.currentUserEmail = null;
     this.currentUserId = null;
     this.currentUserData = null;
+    resetCitizenIncidentNotificationState();
   }
 
   /**

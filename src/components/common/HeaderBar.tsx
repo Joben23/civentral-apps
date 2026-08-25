@@ -1,21 +1,35 @@
-import React from 'react';
+import React, { useEffect, useSyncExternalStore } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import {
+  getCitizenIncidentNotifications,
+  getCitizenIncidentUnreadCountSnapshot,
+  subscribeToCitizenIncidentUnreadCount,
+} from '@/src/services/drrmIncidentNotifications';
 
 export interface HeaderBarProps {
   subtitle?: string;
   onNotificationPress?: () => void;
-  hasUnreadNotifications?: boolean;
 }
 
 export function HeaderBar({
   subtitle = 'Caloocan Government Services',
   onNotificationPress,
-  hasUnreadNotifications = true,
 }: HeaderBarProps) {
   const insets = useSafeAreaInsets();
   const topPadding = Math.max(insets.top, 16);
+  const unreadCount = useSyncExternalStore(
+    subscribeToCitizenIncidentUnreadCount,
+    getCitizenIncidentUnreadCountSnapshot,
+    getCitizenIncidentUnreadCountSnapshot,
+  );
+
+  useEffect(() => {
+    void getCitizenIncidentNotifications().catch(() => {
+      // The header stays usable when the authenticated notification source is unavailable.
+    });
+  }, []);
 
   return (
     <View style={[styles.headerContainer, { paddingTop: topPadding }]}>
@@ -36,9 +50,14 @@ export function HeaderBar({
       <TouchableOpacity
         style={styles.notificationBtn}
         onPress={onNotificationPress}
+        accessibilityLabel={`Notifications, ${unreadCount} unread`}
         activeOpacity={0.7}>
         <IconSymbol name="bell.fill" size={22} color="#176B87" />
-        {hasUnreadNotifications && <View style={styles.redBadgeDot} />}
+        {unreadCount > 0 ? (
+          <View style={styles.unreadBadge}>
+            <Text style={styles.unreadBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+          </View>
+        ) : null}
       </TouchableOpacity>
     </View>
   );
@@ -87,15 +106,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
   },
-  redBadgeDot: {
+  unreadBadge: {
     position: 'absolute',
-    top: 5,
-    right: 5,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: 1,
+    right: 0,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
     backgroundColor: '#EF4444',
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  unreadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
   },
 });
