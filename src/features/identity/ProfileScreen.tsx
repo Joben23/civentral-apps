@@ -22,15 +22,15 @@ import { CitizenProfileData, ProfileService } from '@/src/services/profile-servi
 
 export function ProfileScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ isGuest?: string; email?: string; citizenUserId?: string }>();
+  const params = useLocalSearchParams<{ isGuest?: string }>();
   
   // Check active session or params
   const session = AuthService.getCurrentUser();
-  const activeEmail = params.email || session.email || '';
-  const activeUserId = params.citizenUserId ? parseInt(params.citizenUserId, 10) : session.citizen_user_id || undefined;
+  const activeEmail = session.email || '';
+  const activeUserId = session.citizen_user_id || undefined;
   
   // Is Guest if explicitly passed isGuest=true OR if no user email/id is found
-  const isGuestMode = params.isGuest === 'true' || (!activeEmail && !activeUserId && !session.email);
+  const isGuestMode = params.isGuest === 'true' || (!activeEmail && !activeUserId);
 
   // Active sub-tab state: 'overview' | 'settings'
   const [activeTab, setActiveTab] = useState<'overview' | 'settings'>('overview');
@@ -56,9 +56,9 @@ export function ProfileScreen() {
     birthDate: '',
     civilStatus: '',
     citizenId: activeUserId ? `CIV-2026-${String(activeUserId).padStart(5, '0')}` : isGuestMode ? 'CIV-GUEST-2026' : '',
-    status: isGuestMode ? 'Guest' : 'Active',
-    isVerified: true,
-    registryCompleted: true,
+    status: isGuestMode ? 'Guest' : '',
+    isVerified: false,
+    registryCompleted: false,
     biometricEnabled: false,
     memberSince: '',
     lastLogin: isGuestMode ? 'Current Session (Guest Mode)' : '',
@@ -143,8 +143,6 @@ export function ProfileScreen() {
 
     setIsChangingPassword(true);
     const response = await AuthService.changePassword({
-      citizenUserId: userProfile.citizen_user_id || 0,
-      email: userProfile.email,
       currentPassword,
       newPassword,
     });
@@ -170,8 +168,7 @@ export function ProfileScreen() {
   const fetchProfileFromApi = async () => {
     if (isGuestMode) return;
 
-    const emailToUse = activeEmail || userProfile.email;
-    const response = await ProfileService.getProfile(emailToUse, activeUserId || userProfile.citizen_user_id);
+    const response = await ProfileService.getProfile();
     
     if (response.status === 'success' && response.data) {
       const data = response.data;
@@ -216,21 +213,26 @@ export function ProfileScreen() {
 
     setIsSaving(true);
 
+    if (!isGuestMode) {
+      const response = await ProfileService.updateProfile({
+        email: updatedEmail,
+        phone: updatedPhone,
+        address: updatedAddress,
+      });
+
+      if (response.status !== 'success') {
+        setIsSaving(false);
+        Alert.alert('Profile Update Failed', response.message);
+        return;
+      }
+    }
+
     setUserProfile((prev) => ({
       ...prev,
       phone: updatedPhone,
       email: updatedEmail,
       address: updatedAddress,
     }));
-
-    if (!isGuestMode) {
-      await ProfileService.updateProfile({
-        citizen_user_id: userProfile.citizen_user_id,
-        email: updatedEmail,
-        phone: updatedPhone,
-        address: updatedAddress,
-      });
-    }
 
     setIsSaving(false);
     setIsEditProfileModalVisible(false);

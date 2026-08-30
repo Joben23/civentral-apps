@@ -9,6 +9,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "test:auth": "node scripts/test-auth-flow.cjs",
     "test:drrm": "node scripts/test-drrm-warnings.cjs && node scripts/test-drrm-incidents.cjs && node scripts/test-drrm-notifications.cjs",
     "test:drrm:incidents": "node scripts/test-drrm-incidents.cjs",
     "test:drrm:notifications": "node scripts/test-drrm-notifications.cjs"

@@ -14,7 +14,12 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { AuthService } from '@/src/services/auth-service';
+import { getAccountAuthRoute } from '@/src/features/auth/account-routing';
+import {
+  ACCOUNT_CHECK_ERROR_MESSAGE,
+  AuthService,
+  normalizeAuthIdentifier,
+} from '@/src/services/auth-service';
 
 export type AuthMode = 'email' | 'phone';
 
@@ -38,43 +43,45 @@ export function AuthEntryScreen() {
   // Input Validation & Account Check Action
   const handleContinue = async () => {
     setErrorMessage(null);
-    const trimmed = inputValue.trim();
+    const normalizedIdentifier = normalizeAuthIdentifier(inputValue);
 
-    if (!trimmed) {
+    if (!normalizedIdentifier) {
       setErrorMessage(`Please enter your ${isEmail ? 'email address' : 'phone number'}.`);
       return;
     }
 
     if (isEmail) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(trimmed)) {
+      if (!emailRegex.test(normalizedIdentifier)) {
         setErrorMessage('Please enter a valid email address.');
         return;
       }
     } else {
       const phoneRegex = /^(\+?63|0)9\d{9}$/;
-      if (!phoneRegex.test(trimmed.replace(/\s+/g, ''))) {
+      if (!phoneRegex.test(normalizedIdentifier)) {
         setErrorMessage('Please enter a valid PH mobile number.');
         return;
       }
     }
 
     setIsLoading(true);
-    const checkResult = await AuthService.checkAccount(trimmed);
-    setIsLoading(false);
+    try {
+      const checkResult = await AuthService.checkAccount(normalizedIdentifier);
+      const destination = getAccountAuthRoute(checkResult);
 
-    if (checkResult.exists) {
-      // User account exists -> Navigate to Login Password Screen
+      if (!destination) {
+        setErrorMessage(checkResult.message || ACCOUNT_CHECK_ERROR_MESSAGE);
+        return;
+      }
+
       router.push({
-        pathname: '/(auth)/login' as any,
-        params: { identifier: trimmed },
+        pathname: destination as any,
+        params: { identifier: normalizedIdentifier },
       });
-    } else {
-      // User account does not exist -> Navigate to Register Screen
-      router.push({
-        pathname: '/(auth)/register' as any,
-        params: { identifier: trimmed },
-      });
+    } catch {
+      setErrorMessage(ACCOUNT_CHECK_ERROR_MESSAGE);
+    } finally {
+      setIsLoading(false);
     }
   };
 

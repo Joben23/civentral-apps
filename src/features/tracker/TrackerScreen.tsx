@@ -14,15 +14,10 @@ import { useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Badge } from '@/src/components/ui/Badge';
 import { CivicApiService } from '@/src/services/api';
-import { AuthService } from '@/src/services/auth-service';
 import { DomainApplication } from '@/types/domain';
 
 export function TrackerScreen() {
   const router = useRouter();
-
-  // Active Session
-  const session = AuthService.getCurrentUser();
-  const activeEmail = session.email || '';
 
   // States
   const [applications, setApplications] = useState<DomainApplication[]>([]);
@@ -36,41 +31,8 @@ export function TrackerScreen() {
 
   // Fetch Applications
   const fetchApplications = async () => {
-    const data = await CivicApiService.getApplications(activeEmail);
-    // If backend returns empty list, provide clean dynamic initial tracked applications for demonstration
-    if (!data || data.length === 0) {
-      setApplications([
-        {
-          id: 'APP-2026-001',
-          domainId: 'identity',
-          serviceTitle: 'Barangay Clearance & Citizen ID',
-          applicantId: activeEmail || 'CIT-88490',
-          status: 'Under Review',
-          createdAt: '2026-07-20',
-          updatedAt: '2026-07-25',
-        },
-        {
-          id: 'APP-2026-042',
-          domainId: 'business',
-          serviceTitle: 'New Business Permit Application',
-          applicantId: activeEmail || 'CIT-88490',
-          status: 'Approved',
-          createdAt: '2026-07-15',
-          updatedAt: '2026-07-22',
-        },
-        {
-          id: 'APP-2026-109',
-          domainId: 'treasury',
-          serviceTitle: 'Real Property Tax Payment (Q3)',
-          applicantId: activeEmail || 'CIT-88490',
-          status: 'Completed',
-          createdAt: '2026-07-10',
-          updatedAt: '2026-07-10',
-        },
-      ]);
-    } else {
-      setApplications(data);
-    }
+    const data = await CivicApiService.getApplications();
+    setApplications(data);
   };
 
   useEffect(() => {
@@ -80,7 +42,7 @@ export function TrackerScreen() {
       setIsLoading(false);
     }
     loadData();
-  }, [activeEmail]);
+  }, []);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);

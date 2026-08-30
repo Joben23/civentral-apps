@@ -16,13 +16,13 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { AuthService } from '@/src/services/auth-service';
+import { AuthService, normalizeAuthIdentifier } from '@/src/services/auth-service';
 
 export function LoginScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ identifier?: string }>();
 
-  const [email, setEmail] = useState(params.identifier || '');
+  const [email, setEmail] = useState(normalizeAuthIdentifier(params.identifier || ''));
   const [password, setPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
@@ -48,14 +48,7 @@ export function LoginScreen() {
       
       // Auto-redirect after smooth loading delay (1s)
       setTimeout(() => {
-        router.replace({
-          pathname: '/(tabs)',
-          params: {
-            email: response.email || email.trim(),
-            citizenUserId: response.citizen_user_id || response.user?.citizen_user_id,
-            isGuest: 'false',
-          },
-        } as any);
+        router.replace('/(tabs)' as any);
       }, 1000);
     } else if (response.status === 'otp_required') {
       Alert.alert('Verification Required', response.message || 'Please verify your email to complete login.', [

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,13 +14,14 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { AuthService } from '@/src/services/auth-service';
+import { AuthService, normalizeAuthIdentifier } from '@/src/services/auth-service';
 
 export function RegisterScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ identifier?: string }>();
 
-  const [email, setEmail] = useState(params.identifier || '');
+  const [email, setEmail] = useState(normalizeAuthIdentifier(params.identifier || ''));
+  const [isRegistrationAllowed] = useState(() => AuthService.isRegistrationAllowed(email));
   const [firstName, setFirstName] = useState('');
   const [suffix, setSuffix] = useState('Suffix');
   const [middleName, setMiddleName] = useState('');
@@ -32,6 +33,20 @@ export function RegisterScreen() {
   const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isRegistrationAllowed) {
+      router.replace('/(auth)' as any);
+    }
+  }, [isRegistrationAllowed, router]);
+
+  if (!isRegistrationAllowed) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <ActivityIndicator color="#165B7E" />
+      </SafeAreaView>
+    );
+  }
 
   // REAL-TIME PASSWORD STRENGTH EVALUATION
   const hasMinLength = password.length >= 8;
@@ -105,7 +120,6 @@ export function RegisterScreen() {
         pathname: '/(auth)/verify' as any,
         params: {
           email: res.email || email,
-          citizen_user_id: res.citizen_user_id ? String(res.citizen_user_id) : '',
         },
       });
     } else {
@@ -154,6 +168,7 @@ export function RegisterScreen() {
               onChangeText={setEmail}
               keyboardType="email-address"
               autoCapitalize="none"
+              editable={false}
             />
 
             {/* Field 2: First Name & Suffix Row */}

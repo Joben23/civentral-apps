@@ -16,15 +16,15 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { AuthService, normalizeAuthIdentifier } from '@/src/services/auth-service';
 
 export function VerifyEmailScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ email?: string; citizen_user_id?: string }>();
-  const displayEmail = params.email || 'citizen@caloocan.gov.ph';
-  const citizenUserId = params.citizen_user_id || '';
+  const params = useLocalSearchParams<{ email?: string }>();
+  const displayEmail = normalizeAuthIdentifier(params.email || '');
 
   const [otp, setOtp] = useState<string[]>(['', '', '', '', '', '']);
-  const inputRefs = useRef<Array<TextInput | null>>([]);
+  const inputRefs = useRef<(TextInput | null)[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
@@ -47,35 +47,49 @@ export function VerifyEmailScreen() {
     }
   };
 
-  const handleResend = () => {
-    Alert.alert('Code Resent', `A new 6-digit verification code was sent to ${displayEmail}.`);
+  const handleResend = async () => {
+    setErrorMessage(null);
+    if (!displayEmail) {
+      setErrorMessage('Your verification session is missing. Please sign in again.');
+      return;
+    }
+
+    setIsLoading(true);
+    const response = await AuthService.resendOtp(displayEmail);
+    setIsLoading(false);
+
+    if (response.status === 'success') {
+      Alert.alert('Code Resent', response.message);
+    } else {
+      setErrorMessage(response.message);
+    }
   };
 
-  const handleVerifyAndComplete = () => {
+  const handleVerifyAndComplete = async () => {
     const code = otp.join('');
     if (code.length < 6) {
       setErrorMessage('Please enter the complete 6-digit verification code.');
       return;
     }
 
+    if (!displayEmail) {
+      setErrorMessage('Your verification session is missing. Please sign in again.');
+      return;
+    }
+
     setIsLoading(true);
+    const response = await AuthService.verifyOtp(displayEmail, code);
+    setIsLoading(false);
 
-    // Trigger government loading screen & auto-redirect without popup button
+    if (response.status !== 'success') {
+      setErrorMessage(response.message);
+      return;
+    }
+
+    setIsRedirecting(true);
     setTimeout(() => {
-      setIsLoading(false);
-      setIsRedirecting(true);
-
-      setTimeout(() => {
-        router.replace({
-          pathname: '/(tabs)',
-          params: {
-            email: displayEmail,
-            citizenUserId: citizenUserId,
-            isGuest: 'false',
-          },
-        } as any);
-      }, 1000);
-    }, 600);
+      router.replace('/(tabs)' as any);
+    }, 1000);
   };
 
   return (
@@ -138,7 +152,7 @@ export function VerifyEmailScreen() {
           {/* Resend Link */}
           <View style={styles.resendRow}>
             <Text style={styles.resendText}>
-              Didn't receive the code?{' '}
+              Didn&apos;t receive the code?{' '}
               <Text style={styles.resendLink} onPress={handleResend}>
                 Resend now
               </Text>

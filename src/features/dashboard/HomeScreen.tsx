@@ -65,13 +65,13 @@ const INITIAL_ANNOUNCEMENTS: AnnouncementItem[] = [
 
 export function HomeScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ isGuest?: string; email?: string; citizenUserId?: string }>();
+  const params = useLocalSearchParams<{ isGuest?: string }>();
 
   // Active Session & Guest Status
   const session = AuthService.getCurrentUser();
-  const activeEmail = params.email || session.email || '';
-  const activeUserId = params.citizenUserId ? parseInt(params.citizenUserId, 10) : session.citizen_user_id || undefined;
-  const isGuestMode = params.isGuest === 'true' || (!activeEmail && !activeUserId && !session.email);
+  const activeEmail = session.email || '';
+  const activeUserId = session.citizen_user_id || undefined;
+  const isGuestMode = params.isGuest === 'true' || (!activeEmail && !activeUserId);
 
   // States
   const [searchQuery, setSearchQuery] = useState('');
@@ -85,8 +85,8 @@ export function HomeScreen() {
     middle_name: '',
     last_name: isGuestMode ? 'Resident' : '',
     suffix: '',
-    fullName: isGuestMode ? 'Guest Resident' : 'Active Citizen',
-    initials: isGuestMode ? 'GR' : 'AC',
+    fullName: isGuestMode ? 'Guest Resident' : '',
+    initials: isGuestMode ? 'GR' : '',
     email: activeEmail || (isGuestMode ? 'guest@caloocan.gov.ph' : ''),
     phone: '',
     address: '',
@@ -94,13 +94,13 @@ export function HomeScreen() {
     barangay: '',
     birthDate: '',
     civilStatus: 'Registered Resident',
-    citizenId: activeUserId ? `CIV-2026-${String(activeUserId).padStart(5, '0')}` : isGuestMode ? 'CIV-GUEST-2026' : 'CIV-2026-00001',
-    status: isGuestMode ? 'Guest' : 'Active',
-    isVerified: true,
-    registryCompleted: true,
+    citizenId: activeUserId ? `CIV-2026-${String(activeUserId).padStart(5, '0')}` : isGuestMode ? 'CIV-GUEST-2026' : '',
+    status: isGuestMode ? 'Guest' : '',
+    isVerified: false,
+    registryCompleted: false,
     biometricEnabled: false,
     memberSince: '2026',
-    lastLogin: isGuestMode ? 'Current Session (Guest Mode)' : 'Just Now',
+    lastLogin: isGuestMode ? 'Current Session (Guest Mode)' : '',
   });
 
   // Modal States
@@ -110,8 +110,7 @@ export function HomeScreen() {
   // Fetch Profile Data
   const loadProfile = async () => {
     if (isGuestMode) return;
-    const emailToUse = activeEmail || userProfile.email;
-    const res = await ProfileService.getProfile(emailToUse, activeUserId || userProfile.citizen_user_id);
+    const res = await ProfileService.getProfile();
     if (res.status === 'success' && res.data) {
       const data = res.data;
       setUserProfile((prev) => ({

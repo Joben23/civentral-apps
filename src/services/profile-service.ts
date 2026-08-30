@@ -28,20 +28,15 @@ export class ProfileService {
   /**
    * Fetch Citizen Profile details from PHP Backend API (get-profile.php)
    */
-  static async getProfile(identifier?: string, citizenUserId?: number): Promise<{
+  static async getProfile(): Promise<{
     status: 'success' | 'error';
     data?: Partial<CitizenProfileData>;
     message?: string;
   }> {
     try {
-      const queryParams = new URLSearchParams();
-      if (identifier) queryParams.append('email', identifier);
-      if (citizenUserId) queryParams.append('citizen_user_id', citizenUserId.toString());
-
-      const url = `${API_BASE_URL}/get-profile.php?${queryParams.toString()}`;
-
-      const response = await fetch(url, {
+      const response = await fetch(`${API_BASE_URL}/get-profile.php`, {
         method: 'GET',
+        credentials: 'include',
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
@@ -54,6 +49,10 @@ export class ProfileService {
         json = JSON.parse(text);
       } catch {
         return { status: 'error', message: 'Unable to parse API response' };
+      }
+
+      if (!response.ok) {
+        return { status: 'error', message: json.message || 'Unable to load your profile.' };
       }
 
       if (json.status === 'success' && json.data) {
@@ -97,16 +96,15 @@ export class ProfileService {
     email: string;
     phone: string;
     address: string;
-    citizen_user_id?: number;
   }): Promise<{ status: 'success' | 'error'; message: string }> {
     try {
       const response = await fetch(`${API_BASE_URL}/update-profile.php`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          citizen_user_id: payload.citizen_user_id,
           email: payload.email,
           mobile_number: payload.phone,
           phone: payload.phone,
@@ -119,16 +117,16 @@ export class ProfileService {
       try {
         json = JSON.parse(text);
       } catch {
-        return { status: 'success', message: 'Profile details saved.' };
+        return { status: 'error', message: 'Server returned an invalid response format.' };
       }
 
-      if (json.status === 'success' || json.success === true) {
+      if (response.ok && (json.status === 'success' || json.success === true)) {
         return { status: 'success', message: json.message || 'Profile updated successfully.' };
       }
 
-      return { status: 'success', message: json.message || 'Profile details saved.' };
-    } catch (error: any) {
-      return { status: 'success', message: 'Profile details saved locally.' };
+      return { status: 'error', message: json.message || 'Unable to update your profile.' };
+    } catch {
+      return { status: 'error', message: 'Unable to update your profile. Please try again.' };
     }
   }
 }

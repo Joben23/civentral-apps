@@ -11,7 +11,6 @@ export interface LocationCoords {
 
 export interface IncidentSOSReport {
   id: string;
-  citizenId: string;
   category: EmergencyCategory;
   status: SOSStatus;
   location: LocationCoords;

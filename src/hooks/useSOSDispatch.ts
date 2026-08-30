@@ -11,7 +11,6 @@ export function useSOSDispatch() {
     setTimeout(() => {
       const incident: IncidentSOSReport = {
         id: `SOS-${Math.floor(1000 + Math.random() * 9000)}`,
-        citizenId: 'CIT-88490',
         category,
         status: 'Dispatched',
         location: {

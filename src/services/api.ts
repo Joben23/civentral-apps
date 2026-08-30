@@ -6,14 +6,15 @@ export class CivicApiService {
    * Fetch Real Citizen Applications from PHP Backend API
    * Endpoint: https://civentral.tech/api/citizen/get-applications.php
    */
-  static async getApplications(identifier?: string): Promise<DomainApplication[]> {
+  static async getApplications(): Promise<DomainApplication[]> {
     try {
       const response = await fetch(`${API_BASE_URL}/get-applications.php`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email: identifier || '' }),
+        body: JSON.stringify({}),
       });
 
       const text = await response.text();
@@ -24,7 +25,7 @@ export class CivicApiService {
         return [];
       }
 
-      if (json.status === 'success' && Array.isArray(json.data)) {
+      if (response.ok && json.status === 'success' && Array.isArray(json.data)) {
         return json.data.map((item: any) => ({
           id: item.application_id || item.id || `APP-${item.id}`,
           domainId: item.domain_id || item.domainId || 'identity',
