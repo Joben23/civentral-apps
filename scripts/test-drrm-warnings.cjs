@@ -31,7 +31,7 @@ const service = loadTypeScriptModule('src/services/drrmWarnings.ts', {
   '@/src/config/api': { CITIZEN_API_BASE_URL: 'https://example.gov.ph/api/citizen' },
 });
 const hazardService = loadTypeScriptModule('src/services/drrmHazardMap.ts', {
-  '@/src/config/api': { CITIZEN_API_BASE_URL: 'https://example.gov.ph/api/citizen' },
+  '@/src/config/api': { DRRM_CITIZEN_API_BASE_URL: 'https://drrm-staging.civentral.tech/api/citizen' },
 });
 const presentation = loadTypeScriptModule('src/features/emergency/warningPresentation.ts');
 const hub = loadTypeScriptModule('src/features/emergency/drrmModules.ts');
@@ -141,35 +141,35 @@ const faultResponse = () => hazardResponse('fault', {
   }, { type: 'LineString', coordinates: positionRing.slice(0, 2) })]),
 }, { agency: 'DOST-PHIVOLCS', name: 'Active Faults and Trenches' });
 
-const centersResponse = () => hazardResponse('evacuation-centers', featureCollection(
-  Array.from({ length: 15 }, (_, index) => feature({
-    id: `EC-${String(index + 1).padStart(3, '0')}`,
-    name: `Evacuation Center ${index + 1}`,
-    barangay: `Barangay ${index + 1}`,
-    location: `Barangay ${index + 1}, Caloocan City`,
-    latitude: 14.7,
-    longitude: 121.02,
-    verification_status: 'Development-preview location pending LGU verification',
-    source_context: 'City Government of Caloocan / Caloocan PIO',
-  }, { type: 'Point', coordinates: [121.02, 14.7] })),
-));
+const centersResponse = (items = Array.from({ length: 15 }, (_, index) => ({
+  reference_id: `EC-${String(index + 1).padStart(3, '0')}`,
+  name: `Evacuation Center ${index + 1}`,
+  barangay_name: `Barangay ${index + 1}`,
+  latitude: 14.7 + index / 1000,
+  longitude: 121.02 + index / 1000,
+  source_status: 'DEVELOPMENT_PREVIEW',
+  verification_status: 'UNVERIFIED_REFERENCE',
+}))) => ({
+  success: true,
+  city: 'Caloocan City',
+  layer: 'evacuation-centers',
+  source_status: 'DEVELOPMENT_PREVIEW',
+  verification_status: 'UNVERIFIED_REFERENCE',
+  count: items.length,
+  items,
+});
 
-const emptyCentersResponse = () => hazardResponse('evacuation-centers', featureCollection([]));
+const emptyCentersResponse = () => centersResponse([]);
 
-const operationalCentersResponse = () => hazardResponse('evacuation-centers', featureCollection([
-  feature({
-    id: 'EC-PUBLISHED-001',
-    name: 'Published Evacuation Center',
-    barangay: 'Barangay 12',
-    address: '12 Civic Road, Caloocan City',
-    capacity: 100,
-    operational_status: 'OPERATIONAL',
-    publication_status: 'PUBLISHED',
-    managing_office: 'Caloocan DRRM Office',
-    latitude: 14.71,
-    longitude: 121.01,
-  }, { type: 'Point', coordinates: [121.01, 14.71] }),
-]));
+const operationalCentersResponse = () => centersResponse([{
+  reference_id: 'EC-PUBLISHED-001',
+  name: 'Published Evacuation Center',
+  barangay_name: 'Barangay 12',
+  latitude: 14.71,
+  longitude: 121.01,
+  source_status: 'PUBLISHED',
+  verification_status: 'VERIFIED',
+}]);
 
 async function run() {
   const expectedModuleTitles = [
@@ -229,6 +229,13 @@ async function run() {
   assert.match(hazardMapRenderer, /from 'react-native-svg'/);
   assert.doesNotMatch(hazardMapRenderer, /react-native-maps|leaflet/i);
   assert.doesNotMatch(hazardMapScreen, /route calculation|directions/i);
+  assert.match(hazardMapRenderer, /GestureDetector/);
+  assert.match(hazardMapRenderer, /Gesture\.Pinch\(\)/);
+  assert.match(hazardMapRenderer, /Gesture\.Pan\(\)/);
+  assert.match(hazardMapRenderer, /preserveAspectRatio="xMidYMid meet"/);
+  assert.match(hazardMapRenderer, /MAX_ZOOM = 6/);
+  assert.match(hazardMapRenderer, /Reset map view/);
+  assert.match(hazardMapRenderer, /clampTranslation/);
 
   const originalApiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
   process.env.EXPO_PUBLIC_API_BASE_URL = 'https://example.gov.ph/civentral-drrm/';
@@ -238,6 +245,19 @@ async function run() {
   process.env.EXPO_PUBLIC_API_BASE_URL = 'https://example.gov.ph/civentral-drrm/api/citizen/';
   const legacyConfig = loadTypeScriptModule('src/config/api.ts');
   assert.equal(legacyConfig.CITIZEN_API_BASE_URL, 'https://example.gov.ph/civentral-drrm/api/citizen');
+
+  process.env.EXPO_PUBLIC_DRRM_API_BASE_URL = 'https://drrm-staging.civentral.tech/';
+  const drrmConfig = loadTypeScriptModule('src/config/api.ts');
+  assert.equal(drrmConfig.DRRM_CITIZEN_API_BASE_URL, 'https://drrm-staging.civentral.tech/api/citizen');
+
+  process.env.EXPO_PUBLIC_DRRM_API_BASE_URL = 'https://example.gov.ph/api/employee/';
+  const unsafeDrrmConfig = loadTypeScriptModule('src/config/api.ts');
+  assert.equal(unsafeDrrmConfig.DRRM_CITIZEN_API_BASE_URL, 'https://civentral.tech/api/citizen');
+
+  process.env.EXPO_PUBLIC_API_BASE_URL = 'https://example.gov.ph/api/employee/';
+  delete process.env.EXPO_PUBLIC_DRRM_API_BASE_URL;
+  const safeFallbackConfig = loadTypeScriptModule('src/config/api.ts');
+  assert.equal(safeFallbackConfig.DRRM_CITIZEN_API_BASE_URL, 'https://civentral.tech/api/citizen');
 
   if (originalApiBaseUrl === undefined) {
     delete process.env.EXPO_PUBLIC_API_BASE_URL;
@@ -324,16 +344,18 @@ async function run() {
   assert.equal(fault.data.context.nearest_known_active_fault, 'West Valley Fault');
   assert.equal(fault.data.context.minimum_distance_km, 3.76);
 
-  const centers = hazardService.parseHazardMapResponse('evacuation-centers', centersResponse());
+  const centersPayload = centersResponse();
+  const centers = hazardService.parseHazardMapResponse('evacuation-centers', centersPayload);
   assert.equal(centers.data.features.length, 15);
-  assert.equal(JSON.stringify(centers).includes('capacity'), false);
+  assert.equal(centers.data.features[0].properties.source_status, 'DEVELOPMENT_PREVIEW');
+  assert.equal(centers.data.features[0].properties.verification_status, 'UNVERIFIED_REFERENCE');
+  assert.deepEqual(centers.data.features[0].geometry.coordinates, [121.02, 14.7]);
 
   const emptyCenters = hazardService.parseHazardMapResponse('evacuation-centers', emptyCentersResponse());
   assert.equal(emptyCenters.data.features.length, 0);
 
   const operationalCenters = hazardService.parseHazardMapResponse('evacuation-centers', operationalCentersResponse());
-  assert.equal(operationalCenters.data.features[0].properties.publication_status, 'PUBLISHED');
-  assert.equal(operationalCenters.data.features[0].properties.capacity, 100);
+  assert.equal(operationalCenters.data.features[0].properties.source_status, 'PUBLISHED');
   assert.deepEqual(operationalCenters.data.features[0].geometry.coordinates, [121.01, 14.71]);
 
   assert.throws(
@@ -355,15 +377,19 @@ async function run() {
     const fixtures = {
       boundary: boundaryResponse(),
       flood: susceptibilityResponse('flood', 15, 'Flood'),
+      'evacuation-centers': centersResponse(),
     };
     return { ok: true, text: async () => JSON.stringify(fixtures[layer]) };
   };
   await hazardService.getHazardMapLayer('boundary');
   await hazardService.getHazardMapLayer('boundary');
   await hazardService.getHazardMapLayer('flood');
-  assert.equal(hazardRequests.length, 2);
-  assert.equal(hazardRequests[0].url, 'https://example.gov.ph/api/citizen/drrm/hazard-map.php?layer=boundary');
-  assert.equal(hazardRequests[1].url, 'https://example.gov.ph/api/citizen/drrm/hazard-map.php?layer=flood');
+  await hazardService.getHazardMapLayer('evacuation-centers');
+  assert.equal(hazardRequests.length, 3);
+  assert.equal(hazardRequests[0].url, 'https://drrm-staging.civentral.tech/api/citizen/drrm/hazard-map.php?layer=boundary');
+  assert.equal(hazardRequests[1].url, 'https://drrm-staging.civentral.tech/api/citizen/drrm/hazard-map.php?layer=flood');
+  assert.equal(hazardRequests[2].url, 'https://drrm-staging.civentral.tech/api/citizen/drrm/hazard-map.php?layer=evacuation-centers');
+  assert.doesNotMatch(hazardRequests[2].url, /\/api\/employee|\/api\/api/);
   assert.equal(hazardRequests[0].options.method, 'GET');
   assert.equal(hazardRequests[0].options.headers.Authorization, undefined);
 

@@ -1,24 +1,27 @@
-import React, { memo, useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
-import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import type {
-  BarangayLayerResponse,
-  BoundaryLayerResponse,
-  EvacuationCentersLayerResponse,
-  FaultLayerResponse,
-  FloodLayerResponse,
-  HazardSusceptibilityProperties,
-  LandslideLayerResponse,
-  MapFeatureSelection,
-  MultiLineStringGeometry,
-  MultiPolygonGeometry,
-  PolygonGeometry,
-  Position,
+    BarangayLayerResponse,
+    BoundaryLayerResponse,
+    EvacuationCentersLayerResponse,
+    FaultLayerResponse,
+    FloodLayerResponse,
+    HazardSusceptibilityProperties,
+    LandslideLayerResponse,
+    MapFeatureSelection,
+    MultiLineStringGeometry,
+    MultiPolygonGeometry,
+    PolygonGeometry,
+    Position,
 } from '@/src/types/drrmHazardMap';
+import { memo, useMemo, useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 
 const MAP_WIDTH = 1000;
 const MAP_HEIGHT = 720;
 const MAP_PADDING = 42;
+const MAX_ZOOM = 6;
 
 const FLOOD_COLORS: Record<HazardSusceptibilityProperties['susceptibility'], string> = {
   Low: '#7DD3FC',
@@ -60,10 +63,23 @@ function positionsFromLine(geometry: FaultLayerResponse['data']['geometry']['fea
   return geometry.type === 'LineString' ? geometry.coordinates : geometry.coordinates.flat();
 }
 
-function calculateBounds(boundary: BoundaryLayerResponse, fault?: FaultLayerResponse): MapBounds {
+function calculateBounds(
+  boundary: BoundaryLayerResponse,
+  barangays?: BarangayLayerResponse,
+  flood?: FloodLayerResponse,
+  landslide?: LandslideLayerResponse,
+  fault?: FaultLayerResponse,
+  evacuationCenters?: EvacuationCentersLayerResponse,
+): MapBounds {
   const positions = boundary.data.features.flatMap((feature) => positionsFromPolygon(feature.geometry));
+  if (barangays) positions.push(...barangays.data.features.flatMap((feature) => positionsFromPolygon(feature.geometry)));
+  if (flood) positions.push(...flood.data.features.flatMap((feature) => positionsFromPolygon(feature.geometry)));
+  if (landslide) positions.push(...landslide.data.features.flatMap((feature) => positionsFromPolygon(feature.geometry)));
   if (fault) {
     positions.push(...fault.data.geometry.features.flatMap((feature) => positionsFromLine(feature.geometry)));
+  }
+  if (evacuationCenters) {
+    positions.push(...evacuationCenters.data.features.map((feature) => feature.geometry.coordinates));
   }
 
   const longitudes = positions.map(([longitude]) => longitude);
@@ -143,7 +159,21 @@ function GeoJsonHazardMapComponent({
   evacuationCenters,
   onSelect,
 }: GeoJsonHazardMapProps) {
-  const projection = useMemo(() => createProjection(calculateBounds(boundary, fault)), [boundary, fault]);
+  const [panEnabled, setPanEnabled] = useState(false);
+  const [showReset, setShowReset] = useState(false);
+  const viewportWidth = useSharedValue(0);
+  const viewportHeight = useSharedValue(0);
+  const zoom = useSharedValue(1);
+  const translationX = useSharedValue(0);
+  const translationY = useSharedValue(0);
+  const startZoom = useSharedValue(1);
+  const startTranslationX = useSharedValue(0);
+  const startTranslationY = useSharedValue(0);
+
+  const projection = useMemo(
+    () => createProjection(calculateBounds(boundary, barangays, flood, landslide, fault, evacuationCenters)),
+    [barangays, boundary, evacuationCenters, fault, flood, landslide],
+  );
 
   const boundaryPaths = useMemo(
     () => boundary.data.features.map((feature) => polygonPath(feature.geometry, projection)),
@@ -162,9 +192,97 @@ function GeoJsonHazardMapComponent({
     [landslide, projection],
   );
 
+  const clampTranslation = (value: number, scale: number, viewportSize: number): number => {
+    'worklet';
+    const maximum = Math.max(0, (viewportSize * scale - viewportSize) / 2);
+    return Math.min(maximum, Math.max(-maximum, value));
+  };
+
+  const pinchGesture = Gesture.Pinch()
+    .onStart(() => {
+      startZoom.value = zoom.value;
+      startTranslationX.value = translationX.value;
+      startTranslationY.value = translationY.value;
+    })
+    .onUpdate((event) => {
+      const nextZoom = Math.min(MAX_ZOOM, Math.max(1, startZoom.value * event.scale));
+      const focalOffsetX = event.focalX - viewportWidth.value / 2;
+      const focalOffsetY = event.focalY - viewportHeight.value / 2;
+      zoom.value = nextZoom;
+      translationX.value = clampTranslation(
+        startTranslationX.value + (1 - nextZoom / startZoom.value) * focalOffsetX,
+        nextZoom,
+        viewportWidth.value,
+      );
+      translationY.value = clampTranslation(
+        startTranslationY.value + (1 - nextZoom / startZoom.value) * focalOffsetY,
+        nextZoom,
+        viewportHeight.value,
+      );
+    })
+    .onEnd(() => {
+      if (zoom.value <= 1.001) {
+        zoom.value = 1;
+        translationX.value = 0;
+        translationY.value = 0;
+        runOnJS(setPanEnabled)(false);
+        runOnJS(setShowReset)(false);
+      } else {
+        runOnJS(setPanEnabled)(true);
+        runOnJS(setShowReset)(true);
+      }
+    });
+
+  const panGesture = Gesture.Pan()
+    .enabled(panEnabled)
+    .minDistance(10)
+    .onStart(() => {
+      startTranslationX.value = translationX.value;
+      startTranslationY.value = translationY.value;
+    })
+    .onUpdate((event) => {
+      translationX.value = clampTranslation(
+        startTranslationX.value + event.translationX,
+        zoom.value,
+        viewportWidth.value,
+      );
+      translationY.value = clampTranslation(
+        startTranslationY.value + event.translationY,
+        zoom.value,
+        viewportHeight.value,
+      );
+    })
+    .onEnd(() => {
+      runOnJS(setShowReset)(true);
+    });
+
+  const animatedMapStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translationX.value },
+      { translateY: translationY.value },
+      { scale: zoom.value },
+    ],
+  }));
+
+  const resetView = () => {
+    zoom.value = 1;
+    translationX.value = 0;
+    translationY.value = 0;
+    setPanEnabled(false);
+    setShowReset(false);
+  };
+
   return (
-    <View style={styles.container} accessibilityLabel="Interactive Caloocan City hazard and evacuation map">
-      <Svg width="100%" height="100%" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}>
+    <View
+      style={styles.container}
+      accessibilityLabel="Interactive Caloocan City hazard and evacuation map"
+      onLayout={(event) => {
+        viewportWidth.value = event.nativeEvent.layout.width;
+        viewportHeight.value = event.nativeEvent.layout.height;
+      }}>
+      <GestureDetector gesture={Gesture.Simultaneous(pinchGesture, panGesture)}>
+        <Animated.View style={[styles.mapCanvas, animatedMapStyle]}>
+          <Svg width="100%" height="100%" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} preserveAspectRatio="xMidYMid meet">
         <Rect x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} fill="#EFF6F8" rx={24} />
         <G opacity={0.42}>
           {[160, 320, 480, 640, 800].map((x) => (
@@ -271,7 +389,14 @@ function GeoJsonHazardMapComponent({
           <SvgText x={MAP_WIDTH - 48} y={43} fontSize={20} fontWeight="800" fill="#0F172A" textAnchor="middle">N</SvgText>
           <Path d={`M${MAP_WIDTH - 48} 53 L${MAP_WIDTH - 56} 69 L${MAP_WIDTH - 48} 65 L${MAP_WIDTH - 40} 69 Z`} fill="#176B87" />
         </G>
-      </Svg>
+          </Svg>
+        </Animated.View>
+      </GestureDetector>
+      {showReset ? (
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Reset map view" onPress={resetView} style={styles.resetButton}>
+          <Text style={styles.resetButtonText}>Reset</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -289,5 +414,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#CBD5E1',
     backgroundColor: '#EFF6F8',
+  },
+  mapCanvas: {
+    width: '100%',
+    height: '100%',
+  },
+  resetButton: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  resetButtonText: {
+    color: '#176B87',
+    fontSize: 11,
+    fontWeight: '800',
   },
 });

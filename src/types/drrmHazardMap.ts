@@ -124,15 +124,16 @@ export interface EvacuationCenterProperties {
   longitude: number;
   verification_status?: string;
   source_context?: string;
+  source_status?: string;
 }
 
 export interface PublicHazardMapResponse<TLayer extends HazardMapLayer, TData> {
   success: true;
   city: 'Caloocan City';
   layer: TLayer;
-  data_as_of: string;
-  source: HazardMapSource;
-  development_status: HazardMapDevelopmentStatus;
+  data_as_of?: string;
+  source?: HazardMapSource;
+  development_status?: HazardMapDevelopmentStatus;
   data: TData;
 }
 

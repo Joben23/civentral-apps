@@ -1,27 +1,27 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { DrrmHazardMapService } from '@/src/services/drrmHazardMap';
 import type {
-  AnyHazardMapResponse,
-  BarangayLayerResponse,
-  BoundaryLayerResponse,
-  EvacuationCentersLayerResponse,
-  FaultLayerResponse,
-  FloodLayerResponse,
-  HazardMapLayer,
-  LandslideLayerResponse,
-  MapFeatureSelection,
-  SusceptibilityLevel,
+    AnyHazardMapResponse,
+    BarangayLayerResponse,
+    BoundaryLayerResponse,
+    EvacuationCentersLayerResponse,
+    FaultLayerResponse,
+    FloodLayerResponse,
+    HazardMapLayer,
+    LandslideLayerResponse,
+    MapFeatureSelection,
+    SusceptibilityLevel,
 } from '@/src/types/drrmHazardMap';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+    ActivityIndicator,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 import { GeoJsonHazardMap } from './components/GeoJsonHazardMap';
 
 const LAYER_LABELS: Record<HazardMapLayer, string> = {
@@ -91,7 +91,8 @@ function FeatureDetails({ selection, onClose }: { selection: MapFeatureSelection
         selection.properties.managing_office ? { label: 'Managing office', value: selection.properties.managing_office } : null,
         selection.properties.source_context ? { label: 'Source', value: selection.properties.source_context } : null,
       ].filter((row): row is { label: string; value: string } => row !== null);
-      if (selection.properties.verification_status?.toLowerCase().includes('pending lgu verification')) {
+      if (selection.properties.verification_status === 'UNVERIFIED_REFERENCE'
+        || selection.properties.verification_status?.toLowerCase().includes('pending lgu verification')) {
         rows.push({
           label: 'Notice',
           value: 'Development preview only. This evacuation center reference is pending LGU verification.',
@@ -221,7 +222,7 @@ export function HazardMapScreen() {
   const hasPublishedEvacuationCenter = evacuationCenters?.data.features.some((feature) =>
     feature.properties.publication_status === 'PUBLISHED' || feature.properties.operational_status === 'OPERATIONAL',
   ) ?? false;
-  const evacuationCentersArePreview = evacuationCenters?.development_status.code === 'DEVELOPMENT_PREVIEW'
+  const evacuationCentersArePreview = evacuationCenters?.development_status?.code === 'DEVELOPMENT_PREVIEW'
     && !hasPublishedEvacuationCenter;
 
   const visibleErrors = useMemo(

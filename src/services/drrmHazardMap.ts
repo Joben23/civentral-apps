@@ -1,27 +1,28 @@
-import { CITIZEN_API_BASE_URL } from '@/src/config/api';
+import { DRRM_CITIZEN_API_BASE_URL } from '@/src/config/api';
 import type {
-  AnyHazardMapResponse,
-  BarangayBoundaryProperties,
-  CityBoundaryProperties,
-  EvacuationCenterProperties,
-  FaultContext,
-  FaultLayerData,
-  FaultProperties,
-  GeoJsonFeature,
-  GeoJsonFeatureCollection,
-  HazardMapDevelopmentStatus,
-  HazardMapGeometry,
-  HazardMapLayer,
-  HazardMapResponseByLayer,
-  HazardMapSource,
-  HazardSusceptibilityProperties,
-  LineStringGeometry,
-  MultiLineStringGeometry,
-  MultiPolygonGeometry,
-  PointGeometry,
-  PolygonGeometry,
-  Position,
-  SusceptibilityLevel,
+    AnyHazardMapResponse,
+    BarangayBoundaryProperties,
+    CityBoundaryProperties,
+    EvacuationCenterProperties,
+    EvacuationCentersLayerResponse,
+    FaultContext,
+    FaultLayerData,
+    FaultProperties,
+    GeoJsonFeature,
+    GeoJsonFeatureCollection,
+    HazardMapDevelopmentStatus,
+    HazardMapGeometry,
+    HazardMapLayer,
+    HazardMapResponseByLayer,
+    HazardMapSource,
+    HazardSusceptibilityProperties,
+    LineStringGeometry,
+    MultiLineStringGeometry,
+    MultiPolygonGeometry,
+    PointGeometry,
+    PolygonGeometry,
+    Position,
+    SusceptibilityLevel,
 } from '@/src/types/drrmHazardMap';
 
 const HAZARD_MAP_PATH = '/drrm/hazard-map.php';
@@ -285,8 +286,51 @@ function parseCenterProperties(value: unknown): EvacuationCenterProperties {
   for (const key of ['barangay', 'location', 'address', 'verification_status', 'source_context', 'operational_status', 'publication_status', 'managing_office'] as const) {
     if (value[key] !== undefined) properties[key] = readString(value, key);
   }
+  if (value.source_status !== undefined) properties.source_status = readString(value, 'source_status');
   if (value.capacity !== undefined) properties.capacity = readNumber(value, 'capacity');
   return properties;
+}
+
+function parseEvacuationCentersResponse(value: unknown): EvacuationCentersLayerResponse {
+  if (!isRecord(value) || value.success !== true || value.city !== CALOOCAN_CITY || value.layer !== 'evacuation-centers') {
+    invalidResponse();
+  }
+  if (typeof value.source_status !== 'string' || value.source_status.trim() === ''
+    || typeof value.verification_status !== 'string' || value.verification_status.trim() === '') {
+    invalidResponse();
+  }
+  if (!Number.isInteger(value.count) || (value.count as number) < 0 || !Array.isArray(value.items) || value.count !== value.items.length) {
+    invalidResponse();
+  }
+
+  const features = value.items.map((item): GeoJsonFeature<PointGeometry, EvacuationCenterProperties> => {
+    if (!isRecord(item)) invalidResponse();
+    const properties = parseCenterProperties({
+      ...item,
+      id: item.reference_id,
+      barangay: item.barangay_name,
+      source_status: item.source_status,
+      verification_status: item.verification_status,
+    });
+    return {
+      type: 'Feature',
+      properties,
+      geometry: { type: 'Point', coordinates: [properties.longitude, properties.latitude] },
+    };
+  });
+
+  return {
+    success: true,
+    city: CALOOCAN_CITY,
+    layer: 'evacuation-centers',
+    source: undefined,
+    development_status: {
+      code: value.source_status,
+      label: value.source_status,
+      disclaimer: value.verification_status,
+    },
+    data: { type: 'FeatureCollection', features },
+  };
 }
 
 function commonResponse(value: unknown, layer: HazardMapLayer): UnknownRecord {
@@ -300,6 +344,7 @@ function commonResponse(value: unknown, layer: HazardMapLayer): UnknownRecord {
 }
 
 export function parseHazardMapResponse(layer: HazardMapLayer, value: unknown): AnyHazardMapResponse {
+  if (layer === 'evacuation-centers') return parseEvacuationCentersResponse(value);
   const response = commonResponse(value, layer);
   const common = {
     success: true as const,
@@ -338,24 +383,21 @@ export function parseHazardMapResponse(layer: HazardMapLayer, value: unknown): A
       };
     case 'fault':
       return { ...common, layer, data: parseFaultData(response.data) };
-    case 'evacuation-centers':
-      return {
-        ...common,
-        layer,
-        data: parseFeatureCollection(response.data, undefined, parsePointGeometry, parseCenterProperties),
-      };
   }
 }
 
 async function requestLayer(layer: HazardMapLayer): Promise<AnyHazardMapResponse> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const requestUrl = `${DRRM_CITIZEN_API_BASE_URL}${HAZARD_MAP_PATH}?layer=${encodeURIComponent(layer)}`;
+  let responseStatus: number | undefined;
   try {
-    const response = await fetch(`${CITIZEN_API_BASE_URL}${HAZARD_MAP_PATH}?layer=${encodeURIComponent(layer)}`, {
+    const response = await fetch(requestUrl, {
       method: 'GET',
       headers: { Accept: 'application/json' },
       signal: controller.signal,
     });
+    responseStatus = response.status;
     if (!response.ok) throw new DrrmHazardMapError('HTTP_ERROR');
     let payload: unknown;
     try {
@@ -365,6 +407,13 @@ async function requestLayer(layer: HazardMapLayer): Promise<AnyHazardMapResponse
     }
     return parseHazardMapResponse(layer, payload);
   } catch (error) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('[DRRM hazard map] request failed', {
+        url: requestUrl,
+        status: responseStatus,
+        message: error instanceof Error ? error.message : 'Unknown request error',
+      });
+    }
     if (error instanceof DrrmHazardMapError) throw error;
     if (error instanceof Error && error.name === 'AbortError') throw new DrrmHazardMapError('TIMEOUT');
     throw new DrrmHazardMapError('NETWORK_ERROR');
