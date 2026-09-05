@@ -113,12 +113,17 @@ export interface FaultLayerData {
 export interface EvacuationCenterProperties {
   id: string;
   name: string;
-  barangay: string;
-  location: string;
+  barangay?: string;
+  location?: string;
+  address?: string;
+  capacity?: number;
+  operational_status?: string;
+  publication_status?: string;
+  managing_office?: string;
   latitude: number;
   longitude: number;
-  verification_status: 'Development-preview location pending LGU verification';
-  source_context: string;
+  verification_status?: string;
+  source_context?: string;
 }
 
 export interface PublicHazardMapResponse<TLayer extends HazardMapLayer, TData> {

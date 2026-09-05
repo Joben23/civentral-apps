@@ -36,7 +36,6 @@ const LAYERS: HazardMapLayer[] = [
   'evacuation-centers',
 ];
 const SUSCEPTIBILITY_LEVELS: SusceptibilityLevel[] = ['Low', 'Moderate', 'High', 'Very High'];
-const CENTER_VERIFICATION = 'Development-preview location pending LGU verification';
 
 export type DrrmHazardMapErrorCode = 'HTTP_ERROR' | 'INVALID_RESPONSE' | 'NETWORK_ERROR' | 'TIMEOUT';
 
@@ -147,14 +146,14 @@ function parseLinearGeometry(value: unknown): LinearGeometry {
 
 function parseFeatureCollection<TGeometry extends HazardMapGeometry, TProperties extends object>(
   value: unknown,
-  expectedCount: number,
+  expectedCount: number | undefined,
   parseGeometry: (geometry: unknown) => TGeometry,
   parseProperties: (properties: unknown) => TProperties,
 ): GeoJsonFeatureCollection<TGeometry, TProperties> {
   if (!isRecord(value) || value.type !== 'FeatureCollection' || !Array.isArray(value.features)) {
     invalidResponse();
   }
-  if (value.features.length !== expectedCount) {
+  if (expectedCount !== undefined && value.features.length !== expectedCount) {
     invalidResponse();
   }
   const features = value.features.map((item): GeoJsonFeature<TGeometry, TProperties> => {
@@ -272,20 +271,22 @@ function parseFaultData(value: unknown): FaultLayerData {
 }
 
 function parseCenterProperties(value: unknown): EvacuationCenterProperties {
-  if (!isRecord(value) || value.verification_status !== CENTER_VERIFICATION) invalidResponse();
+  if (!isRecord(value)) invalidResponse();
   const latitude = readNumber(value, 'latitude');
   const longitude = readNumber(value, 'longitude');
   if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) invalidResponse();
-  return {
+  const properties: EvacuationCenterProperties = {
     id: readString(value, 'id'),
     name: readString(value, 'name'),
-    barangay: readString(value, 'barangay'),
-    location: readString(value, 'location'),
     latitude,
     longitude,
-    verification_status: CENTER_VERIFICATION,
-    source_context: readString(value, 'source_context'),
   };
+
+  for (const key of ['barangay', 'location', 'address', 'verification_status', 'source_context', 'operational_status', 'publication_status', 'managing_office'] as const) {
+    if (value[key] !== undefined) properties[key] = readString(value, key);
+  }
+  if (value.capacity !== undefined) properties.capacity = readNumber(value, 'capacity');
+  return properties;
 }
 
 function commonResponse(value: unknown, layer: HazardMapLayer): UnknownRecord {
@@ -341,7 +342,7 @@ export function parseHazardMapResponse(layer: HazardMapLayer, value: unknown): A
       return {
         ...common,
         layer,
-        data: parseFeatureCollection(response.data, 15, parsePointGeometry, parseCenterProperties),
+        data: parseFeatureCollection(response.data, undefined, parsePointGeometry, parseCenterProperties),
       };
   }
 }

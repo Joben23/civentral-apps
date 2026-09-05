@@ -154,6 +154,23 @@ const centersResponse = () => hazardResponse('evacuation-centers', featureCollec
   }, { type: 'Point', coordinates: [121.02, 14.7] })),
 ));
 
+const emptyCentersResponse = () => hazardResponse('evacuation-centers', featureCollection([]));
+
+const operationalCentersResponse = () => hazardResponse('evacuation-centers', featureCollection([
+  feature({
+    id: 'EC-PUBLISHED-001',
+    name: 'Published Evacuation Center',
+    barangay: 'Barangay 12',
+    address: '12 Civic Road, Caloocan City',
+    capacity: 100,
+    operational_status: 'OPERATIONAL',
+    publication_status: 'PUBLISHED',
+    managing_office: 'Caloocan DRRM Office',
+    latitude: 14.71,
+    longitude: 121.01,
+  }, { type: 'Point', coordinates: [121.01, 14.71] }),
+]));
+
 async function run() {
   const expectedModuleTitles = [
     'Hazard & Evacuation Map System',
@@ -211,7 +228,7 @@ async function run() {
   assert.doesNotMatch(hazardMapScreen, /void loadLayer\('(barangays|flood|landslide|fault)'\)/);
   assert.match(hazardMapRenderer, /from 'react-native-svg'/);
   assert.doesNotMatch(hazardMapRenderer, /react-native-maps|leaflet/i);
-  assert.doesNotMatch(hazardMapScreen, /capacity|route calculation|directions/i);
+  assert.doesNotMatch(hazardMapScreen, /route calculation|directions/i);
 
   const originalApiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
   process.env.EXPO_PUBLIC_API_BASE_URL = 'https://example.gov.ph/civentral-drrm/';
@@ -310,6 +327,14 @@ async function run() {
   const centers = hazardService.parseHazardMapResponse('evacuation-centers', centersResponse());
   assert.equal(centers.data.features.length, 15);
   assert.equal(JSON.stringify(centers).includes('capacity'), false);
+
+  const emptyCenters = hazardService.parseHazardMapResponse('evacuation-centers', emptyCentersResponse());
+  assert.equal(emptyCenters.data.features.length, 0);
+
+  const operationalCenters = hazardService.parseHazardMapResponse('evacuation-centers', operationalCentersResponse());
+  assert.equal(operationalCenters.data.features[0].properties.publication_status, 'PUBLISHED');
+  assert.equal(operationalCenters.data.features[0].properties.capacity, 100);
+  assert.deepEqual(operationalCenters.data.features[0].geometry.coordinates, [121.01, 14.71]);
 
   assert.throws(
     () => hazardService.parseHazardMapResponse('boundary', { ...boundaryResponse(), city: 'Another City' }),

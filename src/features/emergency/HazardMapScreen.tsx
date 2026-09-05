@@ -82,11 +82,21 @@ function FeatureDetails({ selection, onClose }: { selection: MapFeatureSelection
       eyebrow = 'EVACUATION CENTER';
       title = selection.properties.name;
       rows = [
-        { label: 'Barangay', value: selection.properties.barangay },
-        { label: 'Location', value: selection.properties.location },
-        { label: 'Verification', value: selection.properties.verification_status },
-        { label: 'Source', value: selection.properties.source_context },
-      ];
+        selection.properties.barangay ? { label: 'Barangay', value: selection.properties.barangay } : null,
+        selection.properties.location ? { label: 'Location', value: selection.properties.location } : null,
+        selection.properties.address ? { label: 'Address', value: selection.properties.address } : null,
+        selection.properties.capacity !== undefined ? { label: 'Capacity', value: String(selection.properties.capacity) } : null,
+        selection.properties.operational_status ? { label: 'Operational status', value: selection.properties.operational_status } : null,
+        selection.properties.verification_status ? { label: 'Verification', value: selection.properties.verification_status } : null,
+        selection.properties.managing_office ? { label: 'Managing office', value: selection.properties.managing_office } : null,
+        selection.properties.source_context ? { label: 'Source', value: selection.properties.source_context } : null,
+      ].filter((row): row is { label: string; value: string } => row !== null);
+      if (selection.properties.verification_status?.toLowerCase().includes('pending lgu verification')) {
+        rows.push({
+          label: 'Notice',
+          value: 'Development preview only. This evacuation center reference is pending LGU verification.',
+        });
+      }
       break;
     case 'barangay':
       eyebrow = 'BARANGAY BOUNDARY';
@@ -207,6 +217,12 @@ export function HazardMapScreen() {
     ? responses.fault as FaultLayerResponse : undefined;
   const evacuationCenters = enabled['evacuation-centers'] && responses['evacuation-centers']?.layer === 'evacuation-centers'
     ? responses['evacuation-centers'] as EvacuationCentersLayerResponse : undefined;
+  const evacuationCenterCount = evacuationCenters?.data.features.length ?? 0;
+  const hasPublishedEvacuationCenter = evacuationCenters?.data.features.some((feature) =>
+    feature.properties.publication_status === 'PUBLISHED' || feature.properties.operational_status === 'OPERATIONAL',
+  ) ?? false;
+  const evacuationCentersArePreview = evacuationCenters?.development_status.code === 'DEVELOPMENT_PREVIEW'
+    && !hasPublishedEvacuationCenter;
 
   const visibleErrors = useMemo(
     () => LAYER_ORDER.filter((layer) => layer !== 'boundary' && enabled[layer] && errors[layer]),
@@ -265,6 +281,13 @@ export function HazardMapScreen() {
           </View>
         ))}
 
+        {!loading.has('evacuation-centers') && !errors['evacuation-centers'] && evacuationCenters && evacuationCenterCount === 0 ? (
+          <View style={styles.layerInfo}>
+            <IconSymbol name="info.circle.fill" size={17} color="#176B87" />
+            <Text style={styles.layerInfoText}>No published evacuation centers are currently available.</Text>
+          </View>
+        ) : null}
+
         {loading.has('boundary') && !boundary ? (
           <View style={styles.mapStateCard}>
             <ActivityIndicator color="#176B87" />
@@ -291,7 +314,9 @@ export function HazardMapScreen() {
                 <Text style={styles.mapTitle}>Caloocan City</Text>
                 <Text style={styles.mapMeta}>North and South Caloocan components</Text>
               </View>
-              <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>PUBLIC GIS</Text></View>
+              <View style={styles.liveBadge}>
+                <Text style={styles.liveBadgeText}>{evacuationCentersArePreview ? 'DEVELOPMENT PREVIEW' : 'PUBLIC GIS'}</Text>
+              </View>
             </View>
             <GeoJsonHazardMap
               boundary={boundary}
@@ -308,15 +333,15 @@ export function HazardMapScreen() {
 
         {selection ? <FeatureDetails selection={selection} onClose={() => setSelection(null)} /> : null}
 
-        {(flood || landslide || evacuationCenters || fault) ? (
+        {(flood || landslide || (evacuationCenters && evacuationCenterCount > 0) || fault) ? (
           <View style={styles.legendCard}>
             <Text style={styles.cardTitle}>Map Legend</Text>
             {flood ? <SusceptibilityLegend title="Flood susceptibility · DENR-MGB" colors={FLOOD_COLORS} /> : null}
             {landslide ? <SusceptibilityLegend title="Rain-induced landslide · DENR-MGB" colors={LANDSLIDE_COLORS} /> : null}
-            {evacuationCenters ? (
+            {evacuationCenters && evacuationCenterCount > 0 ? (
               <View style={styles.symbolLegendRow}>
                 <View style={styles.centerLegendSymbol}><View style={styles.centerLegendDot} /></View>
-                <Text style={styles.symbolLegendText}>Development-preview evacuation center</Text>
+                <Text style={styles.symbolLegendText}>{evacuationCentersArePreview ? 'DEVELOPMENT PREVIEW · UNVERIFIED REFERENCE' : 'Published evacuation center'}</Text>
               </View>
             ) : null}
             {fault ? (
@@ -377,6 +402,8 @@ const styles = StyleSheet.create({
   layerError: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF2F2', borderRadius: 12, padding: 11, marginBottom: 8 },
   layerErrorText: { flex: 1, color: '#991B1B', fontSize: 12, marginHorizontal: 8 },
   retryText: { color: '#176B87', fontSize: 12, fontWeight: '800' },
+  layerInfo: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E0F2FE', borderRadius: 12, padding: 11, marginBottom: 8 },
+  layerInfoText: { flex: 1, color: '#0F4C61', fontSize: 12, marginLeft: 8 },
   mapStateCard: { minHeight: 330, borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', padding: 24, marginTop: 2 },
   mapStateTitle: { fontSize: 16, fontWeight: '800', color: '#0F172A', marginTop: 11, textAlign: 'center' },
   mapStateText: { fontSize: 12, color: '#64748B', lineHeight: 18, marginTop: 5, textAlign: 'center', maxWidth: 420 },
