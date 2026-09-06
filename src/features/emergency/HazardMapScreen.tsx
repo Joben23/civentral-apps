@@ -199,6 +199,7 @@ export function HazardMapScreen() {
   const [route, setRoute] = useState<EvacuationRoutePreview | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
+  const [centerPickerOpen, setCenterPickerOpen] = useState(false);
 
   const loadLayer = useCallback(async (layer: HazardMapLayer, forceRefresh = false) => {
     setLoading((current) => new Set(current).add(layer));
@@ -237,10 +238,18 @@ export function HazardMapScreen() {
     }
   }, [loadLayer, loading, responses]);
 
+  const selectEvacuationCenter = useCallback((center: EvacuationCenterProperties) => {
+    setSelectedCenter(center);
+    setSelection({ kind: 'evacuation-center', properties: center });
+    setRoute(null);
+    setRouteError(null);
+    setCenterPickerOpen(false);
+  }, []);
+
   const handleMapSelection = useCallback((nextSelection: MapFeatureSelection) => {
     setSelection(nextSelection);
-    if (nextSelection.kind === 'evacuation-center') setSelectedCenter(nextSelection.properties);
-  }, []);
+    if (nextSelection.kind === 'evacuation-center') selectEvacuationCenter(nextSelection.properties);
+  }, [selectEvacuationCenter]);
 
   const handleMapTap = useCallback((position: Position) => {
     setStartingLocation(position);
@@ -399,21 +408,25 @@ export function HazardMapScreen() {
         ) : null}
 
         {boundary ? (
-          <View style={styles.routeCard} testID="evacuation-route-preview">
-            <View style={styles.routeHeader}>
+          <View style={styles.preparednessCard} testID="evacuation-route-preview">
+            <View style={styles.preparednessHeader}>
               <View>
-                <Text style={styles.routeEyebrow}>EVACUATION ROUTE</Text>
-                <Text style={styles.routeTitle}>PLANNING PREVIEW</Text>
+                <Text style={styles.preparednessTitle}>Preparedness Tools</Text>
               </View>
-              {route ? <Text style={styles.routeStatus}>Preview ready</Text> : null}
+              <View style={styles.planningBadge}><Text style={styles.planningBadgeText}>PLANNING PREVIEW</Text></View>
+            </View>
+            <View style={styles.toolTabs}>
+              <View style={[styles.toolTab, styles.toolTabActive]}><Text style={styles.toolTabActiveText}>Evacuation Route</Text></View>
+              <View style={[styles.toolTab, styles.toolTabDisabled]}><Text style={styles.toolTabDisabledText}>Flood Risk Check</Text></View>
             </View>
             <Text style={styles.routeLabel}>Starting Location</Text>
-            <View style={styles.routeSelectionRow}>
-              <Text style={styles.routeSelectionText}>{startingLocation ? `${startingLocation[1].toFixed(5)}, ${startingLocation[0].toFixed(5)}` : 'Not set'}</Text>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => setLocationSelectionMode(true)}>
-                <Text style={styles.secondaryButtonText}>Set Location on Map</Text>
-              </TouchableOpacity>
+            <View style={styles.selectionField}>
+              <Text style={styles.routeSelectionText}>{startingLocation ? 'Starting point selected' : 'No starting point selected'}</Text>
+              {startingLocation ? <Text style={styles.secondarySelectionText}>{startingLocation[1].toFixed(6)}, {startingLocation[0].toFixed(6)}</Text> : null}
             </View>
+            <TouchableOpacity style={styles.locationButton} onPress={() => setLocationSelectionMode(true)}>
+              <Text style={styles.locationButtonText}>Set Location on Map</Text>
+            </TouchableOpacity>
             {locationSelectionMode ? (
               <View style={styles.routeInstruction}>
                 <Text style={styles.routeInstructionText}>Tap a location inside Caloocan.</Text>
@@ -422,26 +435,45 @@ export function HazardMapScreen() {
                 </TouchableOpacity>
               </View>
             ) : null}
+            {!locationSelectionMode ? <Text style={styles.helperText}>Choose an exact point inside Caloocan City.</Text> : null}
             <Text style={styles.routeLabel}>Evacuation Center</Text>
-            <Text style={styles.routeSelectionText}>{selectedCenter?.name ?? 'Select a center on the map'}</Text>
+            <TouchableOpacity style={styles.centerPickerButton} onPress={() => setCenterPickerOpen((open) => !open)}>
+              <Text style={[styles.routeSelectionText, !selectedCenter && styles.placeholderText]}>
+                {selectedCenter ? selectedCenter.name : 'Select a development center'}
+              </Text>
+              <Text style={styles.chevron}>{centerPickerOpen ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+            {centerPickerOpen && evacuationCenters ? (
+              <View style={styles.centerOptions}>
+                {evacuationCenters.data.features.map((feature) => (
+                  <TouchableOpacity key={feature.properties.id} style={styles.centerOption} onPress={() => selectEvacuationCenter(feature.properties)}>
+                    <Text style={styles.centerOptionName}>{feature.properties.name}</Text>
+                    {feature.properties.barangay ? <Text style={styles.centerOptionBarangay}>{feature.properties.barangay}</Text> : null}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+            <Text style={styles.helperText}>Development-preview locations are pending LGU verification.</Text>
             <TouchableOpacity
               accessibilityRole="button"
               disabled={!startingLocation || !selectedCenter || routeLoading}
               onPress={() => void previewRoute()}
               style={[styles.previewButton, (!startingLocation || !selectedCenter || routeLoading) && styles.disabledButton]}>
-              {routeLoading ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={styles.previewButtonText}>Preview Route</Text>}
+              {routeLoading ? <Text style={styles.previewButtonText}>Previewing Route...</Text> : <Text style={styles.previewButtonText}>Preview Route</Text>}
             </TouchableOpacity>
             {routeError ? <Text style={styles.routeError}>{routeError}</Text> : null}
             {route ? (
               <View style={styles.routeResult}>
+                <Text style={styles.resultTitle}>Route Preview</Text>
+                <Text style={styles.resultLabel}>Distance</Text>
                 <Text style={styles.routeMetric}>{formatRouteDistance(route.distance_meters)}</Text>
-                {route.duration_seconds !== undefined ? <Text style={styles.routeEstimate}>Estimated road travel: {formatRouteDuration(route.duration_seconds)}</Text> : null}
-                <Text style={styles.routeDisclaimer}>{PLANNING_DISCLAIMER}</Text>
+                {route.duration_seconds !== undefined ? <><Text style={styles.resultLabel}>Estimated road travel</Text><Text style={styles.routeEstimate}>{formatRouteDuration(route.duration_seconds)}</Text></> : null}
                 <TouchableOpacity onPress={() => { setRoute(null); setRouteError(null); }}>
                   <Text style={styles.clearRouteText}>Clear Route</Text>
                 </TouchableOpacity>
               </View>
             ) : null}
+            <Text style={styles.routeDisclaimer}>{PLANNING_DISCLAIMER}</Text>
           </View>
         ) : null}
 
@@ -530,27 +562,44 @@ const styles = StyleSheet.create({
   liveBadge: { backgroundColor: '#DCFCE7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   liveBadgeText: { color: '#15803D', fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
   mapInstruction: { fontSize: 10, color: '#64748B', lineHeight: 15, textAlign: 'center', marginTop: 8 },
-  routeCard: { backgroundColor: '#FFFFFF', borderRadius: 18, borderWidth: 1.5, borderColor: '#F97316', padding: 15, marginTop: 12 },
-  routeHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 },
-  routeEyebrow: { fontSize: 9, fontWeight: '900', color: '#C2410C', letterSpacing: 1 },
-  routeTitle: { fontSize: 16, fontWeight: '900', color: '#0F172A', marginTop: 3 },
-  routeStatus: { color: '#C2410C', fontSize: 10, fontWeight: '800' },
-  routeLabel: { fontSize: 10, fontWeight: '900', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 9, marginBottom: 5 },
-  routeSelectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  preparednessCard: { backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', padding: 14, marginTop: 12 },
+  preparednessHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  preparednessTitle: { fontSize: 18, fontWeight: '900', color: '#0F172A' },
+  planningBadge: { backgroundColor: '#FFF7ED', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5 },
+  planningBadgeText: { color: '#C2410C', fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
+  toolTabs: { flexDirection: 'row', gap: 8, marginTop: 14, marginBottom: 8 },
+  toolTab: { flex: 1, minHeight: 44, borderRadius: 9, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  toolTabActive: { backgroundColor: '#176B87' },
+  toolTabDisabled: { backgroundColor: '#F1F5F9' },
+  toolTabActiveText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', textAlign: 'center' },
+  toolTabDisabledText: { color: '#94A3B8', fontSize: 11, fontWeight: '800', textAlign: 'center' },
+  routeLabel: { fontSize: 10, fontWeight: '900', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 12, marginBottom: 6 },
+  selectionField: { minHeight: 48, justifyContent: 'center', backgroundColor: '#F8FAFC', borderRadius: 9, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 12, paddingVertical: 8 },
   routeSelectionText: { flex: 1, fontSize: 13, color: '#0F172A', fontWeight: '700' },
-  secondaryButton: { borderWidth: 1, borderColor: '#176B87', borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8 },
-  secondaryButtonText: { color: '#176B87', fontSize: 10, fontWeight: '900' },
+  secondarySelectionText: { color: '#64748B', fontSize: 10, marginTop: 3 },
+  placeholderText: { color: '#64748B', fontWeight: '600' },
+  locationButton: { minHeight: 44, borderWidth: 1, borderColor: '#176B87', borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  locationButtonText: { color: '#176B87', fontSize: 12, fontWeight: '900' },
   routeInstruction: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFF7ED', borderRadius: 9, padding: 9, marginTop: 8 },
   routeInstructionText: { color: '#9A3412', fontSize: 11, fontWeight: '700' },
   cancelText: { color: '#C2410C', fontSize: 11, fontWeight: '900' },
-  previewButton: { minHeight: 42, borderRadius: 10, backgroundColor: '#C2410C', alignItems: 'center', justifyContent: 'center', marginTop: 15 },
+  helperText: { color: '#64748B', fontSize: 10, lineHeight: 15, marginTop: 6 },
+  centerPickerButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 9, borderWidth: 1, borderColor: '#CBD5E1', paddingHorizontal: 12, paddingVertical: 8 },
+  chevron: { color: '#176B87', fontSize: 12, fontWeight: '900', marginLeft: 8 },
+  centerOptions: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 9, marginTop: 5, overflow: 'hidden' },
+  centerOption: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  centerOptionName: { color: '#0F172A', fontSize: 12, fontWeight: '800' },
+  centerOptionBarangay: { color: '#64748B', fontSize: 10, marginTop: 2 },
+  previewButton: { minHeight: 46, borderRadius: 9, backgroundColor: '#C2410C', alignItems: 'center', justifyContent: 'center', marginTop: 15 },
   disabledButton: { backgroundColor: '#CBD5E1' },
   previewButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
   routeError: { color: '#B91C1C', fontSize: 11, lineHeight: 16, marginTop: 9 },
-  routeResult: { borderTopWidth: 1, borderTopColor: '#FED7AA', marginTop: 14, paddingTop: 12 },
-  routeMetric: { color: '#C2410C', fontSize: 24, fontWeight: '900' },
-  routeEstimate: { color: '#475569', fontSize: 11, marginTop: 2 },
-  routeDisclaimer: { color: '#7C2D12', fontSize: 10, lineHeight: 15, marginTop: 10 },
+  routeResult: { borderTopWidth: 1, borderTopColor: '#E2E8F0', marginTop: 14, paddingTop: 12 },
+  resultTitle: { color: '#0F172A', fontSize: 14, fontWeight: '900', marginBottom: 8 },
+  resultLabel: { color: '#64748B', fontSize: 10, fontWeight: '800', marginTop: 5 },
+  routeMetric: { color: '#C2410C', fontSize: 22, fontWeight: '900', marginTop: 2 },
+  routeEstimate: { color: '#0F172A', fontSize: 14, fontWeight: '800', marginTop: 2 },
+  routeDisclaimer: { color: '#7C2D12', fontSize: 10, lineHeight: 15, marginTop: 13 },
   clearRouteText: { color: '#176B87', fontSize: 11, fontWeight: '900', marginTop: 12 },
   detailsCard: { backgroundColor: '#FFFFFF', borderRadius: 18, borderWidth: 1.5, borderColor: '#67B5C8', padding: 15, marginTop: 12 },
   detailsHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
