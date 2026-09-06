@@ -58,6 +58,7 @@ interface GeoJsonHazardMapProps {
   locationSelectionMode: boolean;
   onSelect: (selection: MapFeatureSelection) => void;
   onMapTap: (position: Position) => void;
+  onInvalidMapTap: () => void;
 }
 
 function positionsFromPolygon(geometry: PolygonGeometry | MultiPolygonGeometry): Position[] {
@@ -155,6 +156,26 @@ function screenToPosition(
   return [longitude, latitude];
 }
 
+function pointInRing([longitude, latitude]: Position, ring: Position[]): boolean {
+  let inside = false;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
+    const [currentLongitude, currentLatitude] = ring[index];
+    const [previousLongitude, previousLatitude] = ring[previous];
+    const intersects = ((currentLatitude > latitude) !== (previousLatitude > latitude))
+      && longitude < (previousLongitude - currentLongitude) * (latitude - currentLatitude)
+        / (previousLatitude - currentLatitude) + currentLongitude;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function positionInsideBoundary(position: Position, boundary: BoundaryLayerResponse): boolean {
+  return boundary.data.features.some((feature) => feature.geometry.coordinates.some((polygon) => {
+    const [outerRing, ...holes] = polygon;
+    return pointInRing(position, outerRing) && !holes.some((hole) => pointInRing(position, hole));
+  }));
+}
+
 function ringPath(ring: Position[], project: (position: Position) => [number, number]): string {
   return ring
     .map((position, index) => {
@@ -211,6 +232,7 @@ function GeoJsonHazardMapComponent({
   locationSelectionMode,
   onSelect,
   onMapTap,
+  onInvalidMapTap,
 }: GeoJsonHazardMapProps) {
   const [panEnabled, setPanEnabled] = useState(false);
   const [showReset, setShowReset] = useState(false);
@@ -230,7 +252,11 @@ function GeoJsonHazardMapComponent({
   const projection = useMemo(() => createProjection(mapBounds), [mapBounds]);
   const handleMapTapFromScreen = (screenX: number, screenY: number, currentZoom: number, currentTranslationX: number, currentTranslationY: number, width: number, height: number) => {
     const position = screenToPosition(screenX, screenY, width, height, currentZoom, currentTranslationX, currentTranslationY, mapBounds);
-    if (position) onMapTap(position);
+    if (!position || !positionInsideBoundary(position, boundary)) {
+      onInvalidMapTap();
+      return;
+    }
+    onMapTap(position);
   };
 
   const boundaryPaths = useMemo(
@@ -316,7 +342,9 @@ function GeoJsonHazardMapComponent({
 
   const tapGesture = Gesture.Tap()
     .enabled(locationSelectionMode)
-    .maxDistance(8)
+    .maxDistance(12)
+    .maxDuration(500)
+    .shouldCancelWhenOutside(false)
     .onEnd((event, success) => {
       if (!success) return;
       runOnJS(handleMapTapFromScreen)(event.x, event.y, zoom.value, translationX.value, translationY.value, viewportWidth.value, viewportHeight.value);
@@ -346,7 +374,7 @@ function GeoJsonHazardMapComponent({
         viewportWidth.value = event.nativeEvent.layout.width;
         viewportHeight.value = event.nativeEvent.layout.height;
       }}>
-      <GestureDetector gesture={Gesture.Simultaneous(pinchGesture, panGesture, tapGesture)}>
+      <GestureDetector gesture={Gesture.Simultaneous(pinchGesture, Gesture.Exclusive(tapGesture, panGesture))}>
         <Animated.View style={[styles.mapCanvas, animatedMapStyle]}>
           <Svg width="100%" height="100%" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} preserveAspectRatio="xMidYMid meet">
         <Rect x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} fill="#EFF6F8" rx={24} />
@@ -373,7 +401,7 @@ function GeoJsonHazardMapComponent({
             strokeOpacity={0.45}
             strokeWidth={1.2}
             fillRule="evenodd"
-            onPress={() => onSelect({ kind: 'flood', properties: feature.properties })}
+            onPress={locationSelectionMode ? undefined : () => onSelect({ kind: 'flood', properties: feature.properties })}
           />
         ))}
 
@@ -387,7 +415,7 @@ function GeoJsonHazardMapComponent({
             strokeOpacity={0.55}
             strokeWidth={1.4}
             fillRule="evenodd"
-            onPress={() => onSelect({ kind: 'landslide', properties: feature.properties })}
+            onPress={locationSelectionMode ? undefined : () => onSelect({ kind: 'landslide', properties: feature.properties })}
           />
         ))}
 
@@ -412,7 +440,7 @@ function GeoJsonHazardMapComponent({
             strokeOpacity={0.75}
             strokeWidth={1.1}
             fillRule="evenodd"
-            onPress={() => onSelect({ kind: 'barangay', properties: feature.properties })}
+            onPress={locationSelectionMode ? undefined : () => onSelect({ kind: 'barangay', properties: feature.properties })}
           />
         ))}
 
@@ -424,7 +452,7 @@ function GeoJsonHazardMapComponent({
               stroke="#FFFFFF"
               strokeOpacity={0.01}
               strokeWidth={30}
-              onPress={() => onSelect({ kind: 'fault', properties: feature.properties, context: fault.data.context })}
+              onPress={locationSelectionMode ? undefined : () => onSelect({ kind: 'fault', properties: feature.properties, context: fault.data.context })}
             />
             <Path
               d={linePath(feature.geometry, projection)}
@@ -433,7 +461,7 @@ function GeoJsonHazardMapComponent({
               strokeWidth={5}
               strokeDasharray="13 9"
               strokeLinecap="round"
-              onPress={() => onSelect({ kind: 'fault', properties: feature.properties, context: fault.data.context })}
+              onPress={locationSelectionMode ? undefined : () => onSelect({ kind: 'fault', properties: feature.properties, context: fault.data.context })}
             />
           </G>
         ))}

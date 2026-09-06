@@ -232,10 +232,19 @@ async function run() {
   assert.match(hazardMapRenderer, /GestureDetector/);
   assert.match(hazardMapRenderer, /Gesture\.Pinch\(\)/);
   assert.match(hazardMapRenderer, /Gesture\.Pan\(\)/);
+  assert.match(hazardMapRenderer, /Gesture\.Tap\(\)/);
+  assert.match(hazardMapRenderer, /Gesture\.Exclusive\(tapGesture, panGesture\)/);
+  assert.match(hazardMapRenderer, /\.maxDistance\(12\)/);
+  assert.match(hazardMapRenderer, /onInvalidMapTap/);
+  assert.match(hazardMapRenderer, /positionInsideBoundary/);
+  assert.match(hazardMapRenderer, /screenToPosition/);
   assert.match(hazardMapRenderer, /preserveAspectRatio="xMidYMid meet"/);
   assert.match(hazardMapRenderer, /MAX_ZOOM = 6/);
   assert.match(hazardMapRenderer, /Reset map view/);
   assert.match(hazardMapRenderer, /clampTranslation/);
+  assert.match(hazardMapScreen, /Tap the map to set your starting location/);
+  assert.match(hazardMapScreen, /Please select a location inside Caloocan City/);
+  assert.match(hazardMapScreen, /Starting point selected/);
 
   const originalApiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
   process.env.EXPO_PUBLIC_API_BASE_URL = 'https://example.gov.ph/civentral-drrm/';

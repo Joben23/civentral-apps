@@ -200,6 +200,7 @@ export function HazardMapScreen() {
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [centerPickerOpen, setCenterPickerOpen] = useState(false);
+  const [locationSelectionError, setLocationSelectionError] = useState<string | null>(null);
 
   const loadLayer = useCallback(async (layer: HazardMapLayer, forceRefresh = false) => {
     setLoading((current) => new Set(current).add(layer));
@@ -255,7 +256,12 @@ export function HazardMapScreen() {
     setStartingLocation(position);
     setRoute(null);
     setRouteError(null);
+    setLocationSelectionError(null);
     setLocationSelectionMode(false);
+  }, []);
+
+  const handleInvalidMapTap = useCallback(() => {
+    setLocationSelectionError('Please select a location inside Caloocan City.');
   }, []);
 
   const previewRoute = useCallback(async () => {
@@ -389,6 +395,11 @@ export function HazardMapScreen() {
                 <Text style={styles.liveBadgeText}>{evacuationCentersArePreview ? 'DEVELOPMENT PREVIEW' : 'PUBLIC GIS'}</Text>
               </View>
             </View>
+            {locationSelectionMode ? (
+              <View style={styles.mapSelectionBanner} pointerEvents="none">
+                <Text style={styles.mapSelectionBannerText}>Tap the map to set your starting location</Text>
+              </View>
+            ) : null}
             <GeoJsonHazardMap
               boundary={boundary}
               barangays={barangays}
@@ -402,6 +413,7 @@ export function HazardMapScreen() {
               locationSelectionMode={locationSelectionMode}
               onSelect={handleMapSelection}
               onMapTap={handleMapTap}
+              onInvalidMapTap={handleInvalidMapTap}
             />
             <Text style={styles.mapInstruction}>Tap an evacuation center, hazard area, barangay, or fault line for details.</Text>
           </View>
@@ -424,12 +436,16 @@ export function HazardMapScreen() {
               <Text style={styles.routeSelectionText}>{startingLocation ? 'Starting point selected' : 'No starting point selected'}</Text>
               {startingLocation ? <Text style={styles.secondarySelectionText}>{startingLocation[1].toFixed(6)}, {startingLocation[0].toFixed(6)}</Text> : null}
             </View>
-            <TouchableOpacity style={styles.locationButton} onPress={() => setLocationSelectionMode(true)}>
+            <TouchableOpacity style={styles.locationButton} onPress={() => { setLocationSelectionError(null); setLocationSelectionMode(true); }}>
               <Text style={styles.locationButtonText}>Set Location on Map</Text>
             </TouchableOpacity>
             {locationSelectionMode ? (
               <View style={styles.routeInstruction}>
-                <Text style={styles.routeInstructionText}>Tap a location inside Caloocan.</Text>
+                <View style={styles.selectionInstructionCopy}>
+                  <Text style={styles.routeInstructionTitle}>Selecting starting location</Text>
+                  <Text style={styles.routeInstructionText}>Tap a location inside Caloocan City.</Text>
+                  {locationSelectionError ? <Text style={styles.locationSelectionError}>{locationSelectionError}</Text> : null}
+                </View>
                 <TouchableOpacity onPress={() => setLocationSelectionMode(false)}>
                   <Text style={styles.cancelText}>Cancel</Text>
                 </TouchableOpacity>
@@ -562,6 +578,8 @@ const styles = StyleSheet.create({
   liveBadge: { backgroundColor: '#DCFCE7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   liveBadgeText: { color: '#15803D', fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
   mapInstruction: { fontSize: 10, color: '#64748B', lineHeight: 15, textAlign: 'center', marginTop: 8 },
+  mapSelectionBanner: { backgroundColor: '#FFF7ED', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 8 },
+  mapSelectionBannerText: { color: '#9A3412', fontSize: 11, fontWeight: '800', textAlign: 'center' },
   preparednessCard: { backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', padding: 14, marginTop: 12 },
   preparednessHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   preparednessTitle: { fontSize: 18, fontWeight: '900', color: '#0F172A' },
@@ -581,7 +599,10 @@ const styles = StyleSheet.create({
   locationButton: { minHeight: 44, borderWidth: 1, borderColor: '#176B87', borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   locationButtonText: { color: '#176B87', fontSize: 12, fontWeight: '900' },
   routeInstruction: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFF7ED', borderRadius: 9, padding: 9, marginTop: 8 },
+  selectionInstructionCopy: { flex: 1, paddingRight: 8 },
+  routeInstructionTitle: { color: '#9A3412', fontSize: 11, fontWeight: '900' },
   routeInstructionText: { color: '#9A3412', fontSize: 11, fontWeight: '700' },
+  locationSelectionError: { color: '#B91C1C', fontSize: 10, lineHeight: 15, marginTop: 4 },
   cancelText: { color: '#C2410C', fontSize: 11, fontWeight: '900' },
   helperText: { color: '#64748B', fontSize: 10, lineHeight: 15, marginTop: 6 },
   centerPickerButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 9, borderWidth: 1, borderColor: '#CBD5E1', paddingHorizontal: 12, paddingVertical: 8 },
