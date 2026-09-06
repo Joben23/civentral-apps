@@ -1,3 +1,4 @@
+import type { EvacuationRoutePreview } from '@/src/types/drrmEvacuationRoute';
 import type {
     BarangayLayerResponse,
     BoundaryLayerResponse,
@@ -51,7 +52,12 @@ interface GeoJsonHazardMapProps {
   landslide?: LandslideLayerResponse;
   fault?: FaultLayerResponse;
   evacuationCenters?: EvacuationCentersLayerResponse;
+  selectedCenterReferenceId?: string;
+  startingLocation?: Position;
+  route?: EvacuationRoutePreview | null;
+  locationSelectionMode: boolean;
   onSelect: (selection: MapFeatureSelection) => void;
+  onMapTap: (position: Position) => void;
 }
 
 function positionsFromPolygon(geometry: PolygonGeometry | MultiPolygonGeometry): Position[] {
@@ -116,6 +122,39 @@ function createProjection(bounds: MapBounds) {
   ];
 }
 
+function screenToPosition(
+  screenX: number,
+  screenY: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  zoom: number,
+  translationX: number,
+  translationY: number,
+  bounds: MapBounds,
+): Position | null {
+  if (viewportWidth <= 0 || viewportHeight <= 0) return null;
+  const localX = (screenX - translationX) / zoom;
+  const localY = (screenY - translationY) / zoom;
+  const svgScale = Math.min(viewportWidth / MAP_WIDTH, viewportHeight / MAP_HEIGHT);
+  const svgOffsetX = (viewportWidth - MAP_WIDTH * svgScale) / 2;
+  const svgOffsetY = (viewportHeight - MAP_HEIGHT * svgScale) / 2;
+  const svgX = (localX - svgOffsetX) / svgScale;
+  const svgY = (localY - svgOffsetY) / svgScale;
+  const longitudeRange = Math.max(bounds.maxLongitude - bounds.minLongitude, 0.000001);
+  const latitudeRange = Math.max(bounds.maxLatitude - bounds.minLatitude, 0.000001);
+  const mapScale = Math.min((MAP_WIDTH - MAP_PADDING * 2) / longitudeRange, (MAP_HEIGHT - MAP_PADDING * 2) / latitudeRange);
+  const renderedWidth = longitudeRange * mapScale;
+  const renderedHeight = latitudeRange * mapScale;
+  const mapOffsetX = (MAP_WIDTH - renderedWidth) / 2;
+  const mapOffsetY = (MAP_HEIGHT - renderedHeight) / 2;
+  const longitude = bounds.minLongitude + (svgX - mapOffsetX) / mapScale;
+  const latitude = bounds.maxLatitude - (svgY - mapOffsetY) / mapScale;
+  if (longitude < bounds.minLongitude || longitude > bounds.maxLongitude || latitude < bounds.minLatitude || latitude > bounds.maxLatitude) {
+    return null;
+  }
+  return [longitude, latitude];
+}
+
 function ringPath(ring: Position[], project: (position: Position) => [number, number]): string {
   return ring
     .map((position, index) => {
@@ -150,6 +189,15 @@ function linePath(
     .join(' ');
 }
 
+function positionsPath(positions: Position[], project: (position: Position) => [number, number]): string {
+  return positions
+    .map((position, index) => {
+      const [x, y] = project(position);
+      return `${index === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(' ');
+}
+
 function GeoJsonHazardMapComponent({
   boundary,
   barangays,
@@ -157,7 +205,12 @@ function GeoJsonHazardMapComponent({
   landslide,
   fault,
   evacuationCenters,
+  selectedCenterReferenceId,
+  startingLocation,
+  route,
+  locationSelectionMode,
   onSelect,
+  onMapTap,
 }: GeoJsonHazardMapProps) {
   const [panEnabled, setPanEnabled] = useState(false);
   const [showReset, setShowReset] = useState(false);
@@ -170,10 +223,15 @@ function GeoJsonHazardMapComponent({
   const startTranslationX = useSharedValue(0);
   const startTranslationY = useSharedValue(0);
 
-  const projection = useMemo(
-    () => createProjection(calculateBounds(boundary, barangays, flood, landslide, fault, evacuationCenters)),
+  const mapBounds = useMemo(
+    () => calculateBounds(boundary, barangays, flood, landslide, fault, evacuationCenters),
     [barangays, boundary, evacuationCenters, fault, flood, landslide],
   );
+  const projection = useMemo(() => createProjection(mapBounds), [mapBounds]);
+  const handleMapTapFromScreen = (screenX: number, screenY: number, currentZoom: number, currentTranslationX: number, currentTranslationY: number, width: number, height: number) => {
+    const position = screenToPosition(screenX, screenY, width, height, currentZoom, currentTranslationX, currentTranslationY, mapBounds);
+    if (position) onMapTap(position);
+  };
 
   const boundaryPaths = useMemo(
     () => boundary.data.features.map((feature) => polygonPath(feature.geometry, projection)),
@@ -256,6 +314,14 @@ function GeoJsonHazardMapComponent({
       runOnJS(setShowReset)(true);
     });
 
+  const tapGesture = Gesture.Tap()
+    .enabled(locationSelectionMode)
+    .maxDistance(8)
+    .onEnd((event, success) => {
+      if (!success) return;
+      runOnJS(handleMapTapFromScreen)(event.x, event.y, zoom.value, translationX.value, translationY.value, viewportWidth.value, viewportHeight.value);
+    });
+
   const animatedMapStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: translationX.value },
@@ -280,7 +346,7 @@ function GeoJsonHazardMapComponent({
         viewportWidth.value = event.nativeEvent.layout.width;
         viewportHeight.value = event.nativeEvent.layout.height;
       }}>
-      <GestureDetector gesture={Gesture.Simultaneous(pinchGesture, panGesture)}>
+      <GestureDetector gesture={Gesture.Simultaneous(pinchGesture, panGesture, tapGesture)}>
         <Animated.View style={[styles.mapCanvas, animatedMapStyle]}>
           <Svg width="100%" height="100%" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} preserveAspectRatio="xMidYMid meet">
         <Rect x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} fill="#EFF6F8" rx={24} />
@@ -324,6 +390,18 @@ function GeoJsonHazardMapComponent({
             onPress={() => onSelect({ kind: 'landslide', properties: feature.properties })}
           />
         ))}
+
+        {route ? (
+          <Path
+            d={positionsPath(route.route.coordinates, projection)}
+            fill="none"
+            stroke="#F97316"
+            strokeWidth={8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            pointerEvents="none"
+          />
+        ) : null}
 
         {barangays?.data.features.map((feature, index) => (
           <Path
@@ -373,16 +451,27 @@ function GeoJsonHazardMapComponent({
 
         {evacuationCenters?.data.features.map((feature) => {
           const [cx, cy] = projection(feature.geometry.coordinates);
+          const isSelected = feature.properties.id === selectedCenterReferenceId;
           return (
             <G
               key={feature.properties.id}
-              onPress={() => onSelect({ kind: 'evacuation-center', properties: feature.properties })}>
+              onPress={locationSelectionMode ? undefined : () => onSelect({ kind: 'evacuation-center', properties: feature.properties })}>
               <Circle cx={cx} cy={cy} r={34} fill="#FFFFFF" fillOpacity={0.01} />
-              <Circle cx={cx} cy={cy} r={15} fill="#FFFFFF" stroke="#15803D" strokeWidth={4} />
-              <Circle cx={cx} cy={cy} r={5.5} fill="#15803D" />
+              <Circle cx={cx} cy={cy} r={isSelected ? 18 : 15} fill="#FFFFFF" stroke={isSelected ? '#F97316' : '#15803D'} strokeWidth={isSelected ? 5 : 4} />
+              <Circle cx={cx} cy={cy} r={5.5} fill={isSelected ? '#F97316' : '#15803D'} />
             </G>
           );
         })}
+
+        {startingLocation ? (() => {
+          const [cx, cy] = projection(startingLocation);
+          return (
+            <G pointerEvents="none">
+              <Circle cx={cx} cy={cy} r={13} fill="#FFFFFF" stroke="#DC2626" strokeWidth={4} />
+              <Circle cx={cx} cy={cy} r={5} fill="#DC2626" />
+            </G>
+          );
+        })() : null}
 
         <G>
           <Circle cx={MAP_WIDTH - 48} cy={48} r={25} fill="#FFFFFF" fillOpacity={0.9} />

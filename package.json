@@ -10,7 +10,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "test:auth": "node scripts/test-auth-flow.cjs",
-    "test:drrm": "node scripts/test-drrm-warnings.cjs && node scripts/test-drrm-incidents.cjs && node scripts/test-drrm-notifications.cjs",
+    "test:drrm": "node scripts/test-drrm-warnings.cjs && node scripts/test-drrm-incidents.cjs && node scripts/test-drrm-notifications.cjs && node scripts/test-drrm-evacuation-route.cjs",
+    "test:drrm:route": "node scripts/test-drrm-evacuation-route.cjs",
     "test:drrm:incidents": "node scripts/test-drrm-incidents.cjs",
     "test:drrm:notifications": "node scripts/test-drrm-notifications.cjs"
   },

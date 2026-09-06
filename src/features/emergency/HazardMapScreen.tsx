@@ -1,15 +1,19 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { DrrmEvacuationRouteService, EvacuationRouteError } from '@/src/services/drrmEvacuationRoute';
 import { DrrmHazardMapService } from '@/src/services/drrmHazardMap';
+import type { EvacuationRoutePreview } from '@/src/types/drrmEvacuationRoute';
 import type {
     AnyHazardMapResponse,
     BarangayLayerResponse,
     BoundaryLayerResponse,
+    EvacuationCenterProperties,
     EvacuationCentersLayerResponse,
     FaultLayerResponse,
     FloodLayerResponse,
     HazardMapLayer,
     LandslideLayerResponse,
     MapFeatureSelection,
+    Position,
     SusceptibilityLevel,
 } from '@/src/types/drrmHazardMap';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -67,6 +71,26 @@ const LANDSLIDE_COLORS: Record<SusceptibilityLevel, string> = {
 
 type LayerResponses = Partial<Record<HazardMapLayer, AnyHazardMapResponse>>;
 type LayerErrors = Partial<Record<HazardMapLayer, string>>;
+
+const PLANNING_DISCLAIMER = 'Planning preview only. The selected evacuation center is an unverified reference and this road route is not an approved evacuation route. Actual road and hazard conditions may differ during an emergency.';
+
+export function formatRouteDistance(distanceMeters: number): string {
+  return distanceMeters < 1000 ? `${Math.round(distanceMeters)} m` : `${(distanceMeters / 1000).toFixed(2)} km`;
+}
+
+export function formatRouteDuration(durationSeconds: number): string {
+  return `~${Math.max(1, Math.round(durationSeconds / 60))} min`;
+}
+
+function routeErrorMessage(error: unknown): string {
+  if (!(error instanceof EvacuationRouteError)) return 'Route preview could not be loaded. Please try again.';
+  switch (error.code) {
+    case 'INVALID_REQUEST': return 'Please choose a valid starting point and evacuation center.';
+    case 'NO_ROUTE': return 'No planning preview is available for these locations.';
+    case 'UNAVAILABLE': return 'Route preview is temporarily unavailable. Please try again.';
+    default: return 'Route preview could not be loaded. Please try again.';
+  }
+}
 
 function errorMessage(layer: HazardMapLayer): string {
   return `${LAYER_LABELS[layer]} could not be loaded.`;
@@ -169,6 +193,12 @@ export function HazardMapScreen() {
   const [loading, setLoading] = useState<Set<HazardMapLayer>>(new Set());
   const [errors, setErrors] = useState<LayerErrors>({});
   const [selection, setSelection] = useState<MapFeatureSelection | null>(null);
+  const [selectedCenter, setSelectedCenter] = useState<EvacuationCenterProperties | null>(null);
+  const [startingLocation, setStartingLocation] = useState<Position | null>(null);
+  const [locationSelectionMode, setLocationSelectionMode] = useState(false);
+  const [route, setRoute] = useState<EvacuationRoutePreview | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
 
   const loadLayer = useCallback(async (layer: HazardMapLayer, forceRefresh = false) => {
     setLoading((current) => new Set(current).add(layer));
@@ -206,6 +236,37 @@ export function HazardMapScreen() {
       });
     }
   }, [loadLayer, loading, responses]);
+
+  const handleMapSelection = useCallback((nextSelection: MapFeatureSelection) => {
+    setSelection(nextSelection);
+    if (nextSelection.kind === 'evacuation-center') setSelectedCenter(nextSelection.properties);
+  }, []);
+
+  const handleMapTap = useCallback((position: Position) => {
+    setStartingLocation(position);
+    setRoute(null);
+    setRouteError(null);
+    setLocationSelectionMode(false);
+  }, []);
+
+  const previewRoute = useCallback(async () => {
+    if (!startingLocation || !selectedCenter || routeLoading) return;
+    setRouteLoading(true);
+    setRouteError(null);
+    try {
+      const nextRoute = await DrrmEvacuationRouteService.preview(
+        startingLocation[1],
+        startingLocation[0],
+        selectedCenter.id,
+      );
+      setRoute(nextRoute);
+    } catch (error) {
+      setRoute(null);
+      setRouteError(routeErrorMessage(error));
+    } finally {
+      setRouteLoading(false);
+    }
+  }, [routeLoading, selectedCenter, startingLocation]);
 
   const boundary = responses.boundary?.layer === 'boundary' ? responses.boundary as BoundaryLayerResponse : undefined;
   const barangays = enabled.barangays && responses.barangays?.layer === 'barangays'
@@ -326,9 +387,61 @@ export function HazardMapScreen() {
               landslide={landslide}
               fault={fault}
               evacuationCenters={evacuationCenters}
-              onSelect={setSelection}
+              selectedCenterReferenceId={selectedCenter?.id}
+              startingLocation={startingLocation ?? undefined}
+              route={route}
+              locationSelectionMode={locationSelectionMode}
+              onSelect={handleMapSelection}
+              onMapTap={handleMapTap}
             />
             <Text style={styles.mapInstruction}>Tap an evacuation center, hazard area, barangay, or fault line for details.</Text>
+          </View>
+        ) : null}
+
+        {boundary ? (
+          <View style={styles.routeCard} testID="evacuation-route-preview">
+            <View style={styles.routeHeader}>
+              <View>
+                <Text style={styles.routeEyebrow}>EVACUATION ROUTE</Text>
+                <Text style={styles.routeTitle}>PLANNING PREVIEW</Text>
+              </View>
+              {route ? <Text style={styles.routeStatus}>Preview ready</Text> : null}
+            </View>
+            <Text style={styles.routeLabel}>Starting Location</Text>
+            <View style={styles.routeSelectionRow}>
+              <Text style={styles.routeSelectionText}>{startingLocation ? `${startingLocation[1].toFixed(5)}, ${startingLocation[0].toFixed(5)}` : 'Not set'}</Text>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => setLocationSelectionMode(true)}>
+                <Text style={styles.secondaryButtonText}>Set Location on Map</Text>
+              </TouchableOpacity>
+            </View>
+            {locationSelectionMode ? (
+              <View style={styles.routeInstruction}>
+                <Text style={styles.routeInstructionText}>Tap a location inside Caloocan.</Text>
+                <TouchableOpacity onPress={() => setLocationSelectionMode(false)}>
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+            <Text style={styles.routeLabel}>Evacuation Center</Text>
+            <Text style={styles.routeSelectionText}>{selectedCenter?.name ?? 'Select a center on the map'}</Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={!startingLocation || !selectedCenter || routeLoading}
+              onPress={() => void previewRoute()}
+              style={[styles.previewButton, (!startingLocation || !selectedCenter || routeLoading) && styles.disabledButton]}>
+              {routeLoading ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={styles.previewButtonText}>Preview Route</Text>}
+            </TouchableOpacity>
+            {routeError ? <Text style={styles.routeError}>{routeError}</Text> : null}
+            {route ? (
+              <View style={styles.routeResult}>
+                <Text style={styles.routeMetric}>{formatRouteDistance(route.distance_meters)}</Text>
+                {route.duration_seconds !== undefined ? <Text style={styles.routeEstimate}>Estimated road travel: {formatRouteDuration(route.duration_seconds)}</Text> : null}
+                <Text style={styles.routeDisclaimer}>{PLANNING_DISCLAIMER}</Text>
+                <TouchableOpacity onPress={() => { setRoute(null); setRouteError(null); }}>
+                  <Text style={styles.clearRouteText}>Clear Route</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -417,6 +530,28 @@ const styles = StyleSheet.create({
   liveBadge: { backgroundColor: '#DCFCE7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   liveBadgeText: { color: '#15803D', fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
   mapInstruction: { fontSize: 10, color: '#64748B', lineHeight: 15, textAlign: 'center', marginTop: 8 },
+  routeCard: { backgroundColor: '#FFFFFF', borderRadius: 18, borderWidth: 1.5, borderColor: '#F97316', padding: 15, marginTop: 12 },
+  routeHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 },
+  routeEyebrow: { fontSize: 9, fontWeight: '900', color: '#C2410C', letterSpacing: 1 },
+  routeTitle: { fontSize: 16, fontWeight: '900', color: '#0F172A', marginTop: 3 },
+  routeStatus: { color: '#C2410C', fontSize: 10, fontWeight: '800' },
+  routeLabel: { fontSize: 10, fontWeight: '900', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 9, marginBottom: 5 },
+  routeSelectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  routeSelectionText: { flex: 1, fontSize: 13, color: '#0F172A', fontWeight: '700' },
+  secondaryButton: { borderWidth: 1, borderColor: '#176B87', borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8 },
+  secondaryButtonText: { color: '#176B87', fontSize: 10, fontWeight: '900' },
+  routeInstruction: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFF7ED', borderRadius: 9, padding: 9, marginTop: 8 },
+  routeInstructionText: { color: '#9A3412', fontSize: 11, fontWeight: '700' },
+  cancelText: { color: '#C2410C', fontSize: 11, fontWeight: '900' },
+  previewButton: { minHeight: 42, borderRadius: 10, backgroundColor: '#C2410C', alignItems: 'center', justifyContent: 'center', marginTop: 15 },
+  disabledButton: { backgroundColor: '#CBD5E1' },
+  previewButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
+  routeError: { color: '#B91C1C', fontSize: 11, lineHeight: 16, marginTop: 9 },
+  routeResult: { borderTopWidth: 1, borderTopColor: '#FED7AA', marginTop: 14, paddingTop: 12 },
+  routeMetric: { color: '#C2410C', fontSize: 24, fontWeight: '900' },
+  routeEstimate: { color: '#475569', fontSize: 11, marginTop: 2 },
+  routeDisclaimer: { color: '#7C2D12', fontSize: 10, lineHeight: 15, marginTop: 10 },
+  clearRouteText: { color: '#176B87', fontSize: 11, fontWeight: '900', marginTop: 12 },
   detailsCard: { backgroundColor: '#FFFFFF', borderRadius: 18, borderWidth: 1.5, borderColor: '#67B5C8', padding: 15, marginTop: 12 },
   detailsHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
   detailsHeadingCopy: { flex: 1, paddingRight: 8 },
