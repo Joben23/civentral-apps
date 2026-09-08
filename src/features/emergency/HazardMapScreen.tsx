@@ -1,5 +1,6 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { DrrmEvacuationRouteService, EvacuationRouteError } from '@/src/services/drrmEvacuationRoute';
+import { DrrmFloodReferenceService, FloodReferenceError } from '@/src/services/drrmFloodReference';
 import { DrrmHazardMapService } from '@/src/services/drrmHazardMap';
 import type { EvacuationRoutePreview } from '@/src/types/drrmEvacuationRoute';
 import type {
@@ -16,7 +17,7 @@ import type {
     Position,
     SusceptibilityLevel,
 } from '@/src/types/drrmHazardMap';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import {
     ActivityIndicator,
     ScrollView,
@@ -26,6 +27,13 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { INITIAL_FLOOD_CHECK_STATE, floodCheckReducer } from './drrmFloodCheckState';
+import {
+  MAP_LOCATION_SELECTION_MODE,
+  selectPreparednessLocation,
+  type MapLocationSelectionMode,
+} from './drrmMapSelection';
+import { FloodRiskCheckPanel } from './components/FloodRiskCheckPanel';
 import { GeoJsonHazardMap } from './components/GeoJsonHazardMap';
 
 const LAYER_LABELS: Record<HazardMapLayer, string> = {
@@ -74,6 +82,8 @@ type LayerErrors = Partial<Record<HazardMapLayer, string>>;
 
 const PLANNING_DISCLAIMER = 'Planning preview only. The selected evacuation center is an unverified reference and this road route is not an approved evacuation route. Actual road and hazard conditions may differ during an emergency.';
 
+type PreparednessTool = 'EVACUATION_ROUTE' | 'FLOOD_RISK_CHECK';
+
 export function formatRouteDistance(distanceMeters: number): string {
   return distanceMeters < 1000 ? `${Math.round(distanceMeters)} m` : `${(distanceMeters / 1000).toFixed(2)} km`;
 }
@@ -89,6 +99,19 @@ function routeErrorMessage(error: unknown): string {
     case 'NO_ROUTE': return 'No planning preview is available for these locations.';
     case 'UNAVAILABLE': return 'Route preview is temporarily unavailable. Please try again.';
     default: return 'Route preview could not be loaded. Please try again.';
+  }
+}
+
+export function floodReferenceErrorMessage(error: unknown): string {
+  if (!(error instanceof FloodReferenceError)) return 'Unable to connect to the flood reference service.';
+  switch (error.code) {
+    case 'INVALID_REQUEST': return 'Unable to check this location. Please try again.';
+    case 'NOT_FOUND': return 'Flood reference checking is currently unavailable.';
+    case 'INVALID_LOCATION': return 'Please select a valid location inside Caloocan City.';
+    case 'UNAVAILABLE': return 'Flood reference service is temporarily unavailable.';
+    case 'NETWORK_ERROR':
+    case 'TIMEOUT': return 'Unable to connect to the flood reference service.';
+    default: return 'Unable to check this location. Please try again.';
   }
 }
 
@@ -195,12 +218,17 @@ export function HazardMapScreen() {
   const [selection, setSelection] = useState<MapFeatureSelection | null>(null);
   const [selectedCenter, setSelectedCenter] = useState<EvacuationCenterProperties | null>(null);
   const [startingLocation, setStartingLocation] = useState<Position | null>(null);
-  const [locationSelectionMode, setLocationSelectionMode] = useState(false);
+  const [activePreparednessTool, setActivePreparednessTool] = useState<PreparednessTool>('EVACUATION_ROUTE');
+  const [mapLocationSelectionMode, setMapLocationSelectionMode] = useState<MapLocationSelectionMode>(
+    MAP_LOCATION_SELECTION_MODE.NONE,
+  );
   const [route, setRoute] = useState<EvacuationRoutePreview | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [centerPickerOpen, setCenterPickerOpen] = useState(false);
-  const [locationSelectionError, setLocationSelectionError] = useState<string | null>(null);
+  const [routeLocationSelectionError, setRouteLocationSelectionError] = useState<string | null>(null);
+  const [floodLocationSelectionError, setFloodLocationSelectionError] = useState<string | null>(null);
+  const [floodCheckState, dispatchFloodCheck] = useReducer(floodCheckReducer, INITIAL_FLOOD_CHECK_STATE);
 
   const loadLayer = useCallback(async (layer: HazardMapLayer, forceRefresh = false) => {
     setLoading((current) => new Set(current).add(layer));
@@ -253,15 +281,78 @@ export function HazardMapScreen() {
   }, [selectEvacuationCenter]);
 
   const handleMapTap = useCallback((position: Position) => {
-    setStartingLocation(position);
-    setRoute(null);
-    setRouteError(null);
-    setLocationSelectionError(null);
-    setLocationSelectionMode(false);
-  }, []);
+    const nextLocations = selectPreparednessLocation({
+      routeOrigin: startingLocation,
+      floodCheckLocation: floodCheckState.location,
+    }, mapLocationSelectionMode, position);
+
+    if (mapLocationSelectionMode === MAP_LOCATION_SELECTION_MODE.ROUTE_ORIGIN_SELECTION
+      && nextLocations.routeOrigin) {
+      setStartingLocation(nextLocations.routeOrigin);
+      setRoute(null);
+      setRouteError(null);
+      setRouteLocationSelectionError(null);
+      setMapLocationSelectionMode(MAP_LOCATION_SELECTION_MODE.NONE);
+    } else if (mapLocationSelectionMode === MAP_LOCATION_SELECTION_MODE.FLOOD_CHECK_LOCATION_SELECTION
+      && nextLocations.floodCheckLocation) {
+      dispatchFloodCheck({ type: 'LOCATION_SELECTED', location: nextLocations.floodCheckLocation });
+      setFloodLocationSelectionError(null);
+      setMapLocationSelectionMode(MAP_LOCATION_SELECTION_MODE.NONE);
+    }
+  }, [floodCheckState.location, mapLocationSelectionMode, startingLocation]);
 
   const handleInvalidMapTap = useCallback(() => {
-    setLocationSelectionError('Please select a location inside Caloocan City.');
+    if (mapLocationSelectionMode === MAP_LOCATION_SELECTION_MODE.ROUTE_ORIGIN_SELECTION) {
+      setRouteLocationSelectionError('Please select a location inside Caloocan City.');
+    } else if (mapLocationSelectionMode === MAP_LOCATION_SELECTION_MODE.FLOOD_CHECK_LOCATION_SELECTION) {
+      setFloodLocationSelectionError('Please select a location inside Caloocan City.');
+    }
+  }, [mapLocationSelectionMode]);
+
+  const cancelMapLocationSelection = useCallback(() => {
+    setMapLocationSelectionMode(MAP_LOCATION_SELECTION_MODE.NONE);
+    setRouteLocationSelectionError(null);
+    setFloodLocationSelectionError(null);
+  }, []);
+
+  const switchPreparednessTool = useCallback((tool: PreparednessTool) => {
+    setActivePreparednessTool(tool);
+    setMapLocationSelectionMode(MAP_LOCATION_SELECTION_MODE.NONE);
+    setRouteLocationSelectionError(null);
+    setFloodLocationSelectionError(null);
+  }, []);
+
+  const beginRouteLocationSelection = useCallback(() => {
+    setRouteLocationSelectionError(null);
+    setMapLocationSelectionMode(MAP_LOCATION_SELECTION_MODE.ROUTE_ORIGIN_SELECTION);
+  }, []);
+
+  const beginFloodLocationSelection = useCallback(() => {
+    dispatchFloodCheck({ type: 'BEGIN_LOCATION_SELECTION' });
+    setFloodLocationSelectionError(null);
+    setMapLocationSelectionMode(MAP_LOCATION_SELECTION_MODE.FLOOD_CHECK_LOCATION_SELECTION);
+  }, []);
+
+  const checkFloodReference = useCallback(async () => {
+    if (!floodCheckState.location || floodCheckState.loading) return;
+    dispatchFloodCheck({ type: 'CHECK_STARTED' });
+    try {
+      const result = await DrrmFloodReferenceService.check(
+        floodCheckState.location[1],
+        floodCheckState.location[0],
+      );
+      dispatchFloodCheck({ type: 'CHECK_SUCCEEDED', result });
+    } catch (error) {
+      dispatchFloodCheck({ type: 'CHECK_FAILED', error: floodReferenceErrorMessage(error) });
+    }
+  }, [floodCheckState.loading, floodCheckState.location]);
+
+  const clearFloodCheck = useCallback(() => {
+    dispatchFloodCheck({ type: 'CLEAR' });
+    setFloodLocationSelectionError(null);
+    setMapLocationSelectionMode((current) => current === MAP_LOCATION_SELECTION_MODE.FLOOD_CHECK_LOCATION_SELECTION
+      ? MAP_LOCATION_SELECTION_MODE.NONE
+      : current);
   }, []);
 
   const previewRoute = useCallback(async () => {
@@ -305,6 +396,12 @@ export function HazardMapScreen() {
     () => LAYER_ORDER.filter((layer) => layer !== 'boundary' && enabled[layer] && errors[layer]),
     [enabled, errors],
   );
+  const mapSelectionInstruction = mapLocationSelectionMode === MAP_LOCATION_SELECTION_MODE.FLOOD_CHECK_LOCATION_SELECTION
+    ? 'Tap the map to check flood susceptibility at that location'
+    : 'Tap the map to set your starting location';
+  const activeLocationSelectionError = mapLocationSelectionMode === MAP_LOCATION_SELECTION_MODE.FLOOD_CHECK_LOCATION_SELECTION
+    ? floodLocationSelectionError
+    : routeLocationSelectionError;
 
   return (
     <View style={styles.container}>
@@ -395,9 +492,21 @@ export function HazardMapScreen() {
                 <Text style={styles.liveBadgeText}>{evacuationCentersArePreview ? 'DEVELOPMENT PREVIEW' : 'PUBLIC GIS'}</Text>
               </View>
             </View>
-            {locationSelectionMode ? (
-              <View style={styles.mapSelectionBanner} pointerEvents="none">
-                <Text style={styles.mapSelectionBannerText}>Tap the map to set your starting location</Text>
+            {mapLocationSelectionMode !== MAP_LOCATION_SELECTION_MODE.NONE ? (
+              <View style={styles.mapSelectionBanner}>
+                <View style={styles.mapSelectionBannerCopy}>
+                  <Text style={styles.mapSelectionBannerText}>{mapSelectionInstruction}</Text>
+                  {activeLocationSelectionError ? (
+                    <Text style={styles.mapSelectionBannerError}>{activeLocationSelectionError}</Text>
+                  ) : null}
+                </View>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel map location selection"
+                  onPress={cancelMapLocationSelection}
+                  style={styles.mapSelectionCancelButton}>
+                  <Text style={styles.mapSelectionCancelText}>Cancel</Text>
+                </TouchableOpacity>
               </View>
             ) : null}
             <GeoJsonHazardMap
@@ -409,8 +518,9 @@ export function HazardMapScreen() {
               evacuationCenters={evacuationCenters}
               selectedCenterReferenceId={selectedCenter?.id}
               startingLocation={startingLocation ?? undefined}
+              floodCheckLocation={floodCheckState.location ?? undefined}
               route={route}
-              locationSelectionMode={locationSelectionMode}
+              locationSelectionMode={mapLocationSelectionMode}
               onSelect={handleMapSelection}
               onMapTap={handleMapTap}
               onInvalidMapTap={handleInvalidMapTap}
@@ -420,7 +530,7 @@ export function HazardMapScreen() {
         ) : null}
 
         {boundary ? (
-          <View style={styles.preparednessCard} testID="evacuation-route-preview">
+          <View style={styles.preparednessCard} testID="preparedness-tools">
             <View style={styles.preparednessHeader}>
               <View>
                 <Text style={styles.preparednessTitle}>Preparedness Tools</Text>
@@ -428,30 +538,52 @@ export function HazardMapScreen() {
               <View style={styles.planningBadge}><Text style={styles.planningBadgeText}>PLANNING PREVIEW</Text></View>
             </View>
             <View style={styles.toolTabs}>
-              <View style={[styles.toolTab, styles.toolTabActive]}><Text style={styles.toolTabActiveText}>Evacuation Route</Text></View>
-              <View style={[styles.toolTab, styles.toolTabDisabled]}><Text style={styles.toolTabDisabledText}>Flood Risk Check</Text></View>
+              <TouchableOpacity
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activePreparednessTool === 'EVACUATION_ROUTE' }}
+                testID="evacuation-route-tab"
+                onPress={() => switchPreparednessTool('EVACUATION_ROUTE')}
+                style={[styles.toolTab, activePreparednessTool === 'EVACUATION_ROUTE' ? styles.toolTabActive : styles.toolTabInactive]}>
+                <Text style={activePreparednessTool === 'EVACUATION_ROUTE' ? styles.toolTabActiveText : styles.toolTabInactiveText}>
+                  Evacuation Route
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activePreparednessTool === 'FLOOD_RISK_CHECK' }}
+                testID="flood-risk-check-tab"
+                onPress={() => switchPreparednessTool('FLOOD_RISK_CHECK')}
+                style={[styles.toolTab, activePreparednessTool === 'FLOOD_RISK_CHECK' ? styles.toolTabActive : styles.toolTabInactive]}>
+                <Text style={activePreparednessTool === 'FLOOD_RISK_CHECK' ? styles.toolTabActiveText : styles.toolTabInactiveText}>
+                  Flood Risk Check
+                </Text>
+              </TouchableOpacity>
             </View>
+            {activePreparednessTool === 'EVACUATION_ROUTE' ? (
+              <View testID="evacuation-route-preview">
             <Text style={styles.routeLabel}>Starting Location</Text>
             <View style={styles.selectionField}>
               <Text style={styles.routeSelectionText}>{startingLocation ? 'Starting point selected' : 'No starting point selected'}</Text>
               {startingLocation ? <Text style={styles.secondarySelectionText}>{startingLocation[1].toFixed(6)}, {startingLocation[0].toFixed(6)}</Text> : null}
             </View>
-            <TouchableOpacity style={styles.locationButton} onPress={() => { setLocationSelectionError(null); setLocationSelectionMode(true); }}>
+            <TouchableOpacity style={styles.locationButton} onPress={beginRouteLocationSelection}>
               <Text style={styles.locationButtonText}>Set Location on Map</Text>
             </TouchableOpacity>
-            {locationSelectionMode ? (
+            {mapLocationSelectionMode === MAP_LOCATION_SELECTION_MODE.ROUTE_ORIGIN_SELECTION ? (
               <View style={styles.routeInstruction}>
                 <View style={styles.selectionInstructionCopy}>
                   <Text style={styles.routeInstructionTitle}>Selecting starting location</Text>
                   <Text style={styles.routeInstructionText}>Tap a location inside Caloocan City.</Text>
-                  {locationSelectionError ? <Text style={styles.locationSelectionError}>{locationSelectionError}</Text> : null}
+                  {routeLocationSelectionError ? <Text style={styles.locationSelectionError}>{routeLocationSelectionError}</Text> : null}
                 </View>
-                <TouchableOpacity onPress={() => setLocationSelectionMode(false)}>
+                <TouchableOpacity accessibilityRole="button" onPress={cancelMapLocationSelection} style={styles.selectionCancelButton}>
                   <Text style={styles.cancelText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             ) : null}
-            {!locationSelectionMode ? <Text style={styles.helperText}>Choose an exact point inside Caloocan City.</Text> : null}
+            {mapLocationSelectionMode !== MAP_LOCATION_SELECTION_MODE.ROUTE_ORIGIN_SELECTION ? (
+              <Text style={styles.helperText}>Choose an exact point inside Caloocan City.</Text>
+            ) : null}
             <Text style={styles.routeLabel}>Evacuation Center</Text>
             <TouchableOpacity style={styles.centerPickerButton} onPress={() => setCenterPickerOpen((open) => !open)}>
               <Text style={[styles.routeSelectionText, !selectedCenter && styles.placeholderText]}>
@@ -490,12 +622,25 @@ export function HazardMapScreen() {
               </View>
             ) : null}
             <Text style={styles.routeDisclaimer}>{PLANNING_DISCLAIMER}</Text>
+              </View>
+            ) : (
+              <FloodRiskCheckPanel
+                state={floodCheckState}
+                selectingLocation={mapLocationSelectionMode === MAP_LOCATION_SELECTION_MODE.FLOOD_CHECK_LOCATION_SELECTION}
+                selectionError={floodLocationSelectionError}
+                onStartLocationSelection={beginFloodLocationSelection}
+                onCancelLocationSelection={cancelMapLocationSelection}
+                onCheck={() => void checkFloodReference()}
+                onClear={clearFloodCheck}
+              />
+            )}
           </View>
         ) : null}
 
         {selection ? <FeatureDetails selection={selection} onClose={() => setSelection(null)} /> : null}
 
-        {(flood || landslide || (evacuationCenters && evacuationCenterCount > 0) || fault) ? (
+        {(flood || landslide || (evacuationCenters && evacuationCenterCount > 0) || fault
+          || startingLocation || floodCheckState.location) ? (
           <View style={styles.legendCard}>
             <Text style={styles.cardTitle}>Map Legend</Text>
             {flood ? <SusceptibilityLegend title="Flood susceptibility · DENR-MGB" colors={FLOOD_COLORS} /> : null}
@@ -504,6 +649,18 @@ export function HazardMapScreen() {
               <View style={styles.symbolLegendRow}>
                 <View style={styles.centerLegendSymbol}><View style={styles.centerLegendDot} /></View>
                 <Text style={styles.symbolLegendText}>{evacuationCentersArePreview ? 'DEVELOPMENT PREVIEW · UNVERIFIED REFERENCE' : 'Published evacuation center'}</Text>
+              </View>
+            ) : null}
+            {startingLocation ? (
+              <View style={styles.symbolLegendRow}>
+                <View style={styles.routeOriginLegendSymbol}><View style={styles.routeOriginLegendDot} /></View>
+                <Text style={styles.symbolLegendText}>Evacuation route starting location</Text>
+              </View>
+            ) : null}
+            {floodCheckState.location ? (
+              <View style={styles.symbolLegendRow}>
+                <View style={styles.floodCheckLegendSymbol} />
+                <Text style={styles.symbolLegendText}>Flood reference check location</Text>
               </View>
             ) : null}
             {fault ? (
@@ -578,8 +735,12 @@ const styles = StyleSheet.create({
   liveBadge: { backgroundColor: '#DCFCE7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   liveBadgeText: { color: '#15803D', fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
   mapInstruction: { fontSize: 10, color: '#64748B', lineHeight: 15, textAlign: 'center', marginTop: 8 },
-  mapSelectionBanner: { backgroundColor: '#FFF7ED', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 8 },
-  mapSelectionBannerText: { color: '#9A3412', fontSize: 11, fontWeight: '800', textAlign: 'center' },
+  mapSelectionBanner: { minHeight: 52, flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF7ED', borderRadius: 8, paddingLeft: 10, paddingRight: 4, paddingVertical: 4, marginBottom: 8 },
+  mapSelectionBannerCopy: { flex: 1, paddingVertical: 4 },
+  mapSelectionBannerText: { color: '#9A3412', fontSize: 11, lineHeight: 16, fontWeight: '800' },
+  mapSelectionBannerError: { color: '#B91C1C', fontSize: 10, lineHeight: 15, fontWeight: '700', marginTop: 2 },
+  mapSelectionCancelButton: { minWidth: 58, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  mapSelectionCancelText: { color: '#C2410C', fontSize: 11, fontWeight: '900' },
   preparednessCard: { backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', padding: 14, marginTop: 12 },
   preparednessHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   preparednessTitle: { fontSize: 18, fontWeight: '900', color: '#0F172A' },
@@ -588,9 +749,9 @@ const styles = StyleSheet.create({
   toolTabs: { flexDirection: 'row', gap: 8, marginTop: 14, marginBottom: 8 },
   toolTab: { flex: 1, minHeight: 44, borderRadius: 9, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   toolTabActive: { backgroundColor: '#176B87' },
-  toolTabDisabled: { backgroundColor: '#F1F5F9' },
+  toolTabInactive: { backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0' },
   toolTabActiveText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', textAlign: 'center' },
-  toolTabDisabledText: { color: '#94A3B8', fontSize: 11, fontWeight: '800', textAlign: 'center' },
+  toolTabInactiveText: { color: '#475569', fontSize: 11, fontWeight: '800', textAlign: 'center' },
   routeLabel: { fontSize: 10, fontWeight: '900', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 12, marginBottom: 6 },
   selectionField: { minHeight: 48, justifyContent: 'center', backgroundColor: '#F8FAFC', borderRadius: 9, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 12, paddingVertical: 8 },
   routeSelectionText: { flex: 1, fontSize: 13, color: '#0F172A', fontWeight: '700' },
@@ -600,6 +761,7 @@ const styles = StyleSheet.create({
   locationButtonText: { color: '#176B87', fontSize: 12, fontWeight: '900' },
   routeInstruction: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFF7ED', borderRadius: 9, padding: 9, marginTop: 8 },
   selectionInstructionCopy: { flex: 1, paddingRight: 8 },
+  selectionCancelButton: { minWidth: 52, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   routeInstructionTitle: { color: '#9A3412', fontSize: 11, fontWeight: '900' },
   routeInstructionText: { color: '#9A3412', fontSize: 11, fontWeight: '700' },
   locationSelectionError: { color: '#B91C1C', fontSize: 10, lineHeight: 15, marginTop: 4 },
@@ -642,6 +804,9 @@ const styles = StyleSheet.create({
   symbolLegendRow: { flexDirection: 'row', alignItems: 'center', marginTop: 11 },
   centerLegendSymbol: { width: 18, height: 18, borderRadius: 9, borderWidth: 3, borderColor: '#15803D', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', marginRight: 8 },
   centerLegendDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#15803D' },
+  routeOriginLegendSymbol: { width: 18, height: 18, borderRadius: 9, borderWidth: 3, borderColor: '#DC2626', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', marginRight: 8 },
+  routeOriginLegendDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#DC2626' },
+  floodCheckLegendSymbol: { width: 16, height: 16, borderWidth: 3, borderColor: '#7C3AED', backgroundColor: '#FFFFFF', transform: [{ rotate: '45deg' }], marginHorizontal: 1, marginRight: 9 },
   faultLegendLine: { width: 26, borderTopWidth: 3, borderColor: '#DC2626', borderStyle: 'dashed', marginRight: 8 },
   symbolLegendText: { flex: 1, fontSize: 10, color: '#475569' },
   developmentNote: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#E0F2FE', borderRadius: 13, padding: 12, marginTop: 12 },

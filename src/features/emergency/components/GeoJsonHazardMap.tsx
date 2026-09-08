@@ -1,4 +1,16 @@
 import type { EvacuationRoutePreview } from '@/src/types/drrmEvacuationRoute';
+import {
+  DRRM_MAP_HEIGHT as MAP_HEIGHT,
+  DRRM_MAP_WIDTH as MAP_WIDTH,
+  positionInsideBoundary,
+  projectPosition,
+  screenToPosition,
+  type DrrmMapBounds as MapBounds,
+} from '@/src/features/emergency/drrmMapGeometry';
+import {
+  MAP_LOCATION_SELECTION_MODE,
+  type MapLocationSelectionMode,
+} from '@/src/features/emergency/drrmMapSelection';
 import type {
     BarangayLayerResponse,
     BoundaryLayerResponse,
@@ -19,9 +31,6 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 
-const MAP_WIDTH = 1000;
-const MAP_HEIGHT = 720;
-const MAP_PADDING = 42;
 const MAX_ZOOM = 6;
 
 const FLOOD_COLORS: Record<HazardSusceptibilityProperties['susceptibility'], string> = {
@@ -38,13 +47,6 @@ const LANDSLIDE_COLORS: Record<HazardSusceptibilityProperties['susceptibility'],
   'Very High': '#78350F',
 };
 
-interface MapBounds {
-  minLongitude: number;
-  maxLongitude: number;
-  minLatitude: number;
-  maxLatitude: number;
-}
-
 interface GeoJsonHazardMapProps {
   boundary: BoundaryLayerResponse;
   barangays?: BarangayLayerResponse;
@@ -54,8 +56,9 @@ interface GeoJsonHazardMapProps {
   evacuationCenters?: EvacuationCentersLayerResponse;
   selectedCenterReferenceId?: string;
   startingLocation?: Position;
+  floodCheckLocation?: Position;
   route?: EvacuationRoutePreview | null;
-  locationSelectionMode: boolean;
+  locationSelectionMode: MapLocationSelectionMode;
   onSelect: (selection: MapFeatureSelection) => void;
   onMapTap: (position: Position) => void;
   onInvalidMapTap: () => void;
@@ -107,73 +110,7 @@ function calculateBounds(
 }
 
 function createProjection(bounds: MapBounds) {
-  const longitudeRange = Math.max(bounds.maxLongitude - bounds.minLongitude, 0.000001);
-  const latitudeRange = Math.max(bounds.maxLatitude - bounds.minLatitude, 0.000001);
-  const usableWidth = MAP_WIDTH - MAP_PADDING * 2;
-  const usableHeight = MAP_HEIGHT - MAP_PADDING * 2;
-  const scale = Math.min(usableWidth / longitudeRange, usableHeight / latitudeRange);
-  const renderedWidth = longitudeRange * scale;
-  const renderedHeight = latitudeRange * scale;
-  const xOffset = (MAP_WIDTH - renderedWidth) / 2;
-  const yOffset = (MAP_HEIGHT - renderedHeight) / 2;
-
-  return ([longitude, latitude]: Position): [number, number] => [
-    xOffset + (longitude - bounds.minLongitude) * scale,
-    yOffset + (bounds.maxLatitude - latitude) * scale,
-  ];
-}
-
-function screenToPosition(
-  screenX: number,
-  screenY: number,
-  viewportWidth: number,
-  viewportHeight: number,
-  zoom: number,
-  translationX: number,
-  translationY: number,
-  bounds: MapBounds,
-): Position | null {
-  if (viewportWidth <= 0 || viewportHeight <= 0) return null;
-  const localX = (screenX - translationX) / zoom;
-  const localY = (screenY - translationY) / zoom;
-  const svgScale = Math.min(viewportWidth / MAP_WIDTH, viewportHeight / MAP_HEIGHT);
-  const svgOffsetX = (viewportWidth - MAP_WIDTH * svgScale) / 2;
-  const svgOffsetY = (viewportHeight - MAP_HEIGHT * svgScale) / 2;
-  const svgX = (localX - svgOffsetX) / svgScale;
-  const svgY = (localY - svgOffsetY) / svgScale;
-  const longitudeRange = Math.max(bounds.maxLongitude - bounds.minLongitude, 0.000001);
-  const latitudeRange = Math.max(bounds.maxLatitude - bounds.minLatitude, 0.000001);
-  const mapScale = Math.min((MAP_WIDTH - MAP_PADDING * 2) / longitudeRange, (MAP_HEIGHT - MAP_PADDING * 2) / latitudeRange);
-  const renderedWidth = longitudeRange * mapScale;
-  const renderedHeight = latitudeRange * mapScale;
-  const mapOffsetX = (MAP_WIDTH - renderedWidth) / 2;
-  const mapOffsetY = (MAP_HEIGHT - renderedHeight) / 2;
-  const longitude = bounds.minLongitude + (svgX - mapOffsetX) / mapScale;
-  const latitude = bounds.maxLatitude - (svgY - mapOffsetY) / mapScale;
-  if (longitude < bounds.minLongitude || longitude > bounds.maxLongitude || latitude < bounds.minLatitude || latitude > bounds.maxLatitude) {
-    return null;
-  }
-  return [longitude, latitude];
-}
-
-function pointInRing([longitude, latitude]: Position, ring: Position[]): boolean {
-  let inside = false;
-  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
-    const [currentLongitude, currentLatitude] = ring[index];
-    const [previousLongitude, previousLatitude] = ring[previous];
-    const intersects = ((currentLatitude > latitude) !== (previousLatitude > latitude))
-      && longitude < (previousLongitude - currentLongitude) * (latitude - currentLatitude)
-        / (previousLatitude - currentLatitude) + currentLongitude;
-    if (intersects) inside = !inside;
-  }
-  return inside;
-}
-
-function positionInsideBoundary(position: Position, boundary: BoundaryLayerResponse): boolean {
-  return boundary.data.features.some((feature) => feature.geometry.coordinates.some((polygon) => {
-    const [outerRing, ...holes] = polygon;
-    return pointInRing(position, outerRing) && !holes.some((hole) => pointInRing(position, hole));
-  }));
+  return (position: Position): [number, number] => projectPosition(position, bounds);
 }
 
 function ringPath(ring: Position[], project: (position: Position) => [number, number]): string {
@@ -228,12 +165,14 @@ function GeoJsonHazardMapComponent({
   evacuationCenters,
   selectedCenterReferenceId,
   startingLocation,
+  floodCheckLocation,
   route,
   locationSelectionMode,
   onSelect,
   onMapTap,
   onInvalidMapTap,
 }: GeoJsonHazardMapProps) {
+  const locationSelectionActive = locationSelectionMode !== MAP_LOCATION_SELECTION_MODE.NONE;
   const [panEnabled, setPanEnabled] = useState(false);
   const [showReset, setShowReset] = useState(false);
   const viewportWidth = useSharedValue(0);
@@ -341,7 +280,7 @@ function GeoJsonHazardMapComponent({
     });
 
   const tapGesture = Gesture.Tap()
-    .enabled(locationSelectionMode)
+    .enabled(locationSelectionActive)
     .maxDistance(12)
     .maxDuration(500)
     .shouldCancelWhenOutside(false)
@@ -401,7 +340,7 @@ function GeoJsonHazardMapComponent({
             strokeOpacity={0.45}
             strokeWidth={1.2}
             fillRule="evenodd"
-            onPress={locationSelectionMode ? undefined : () => onSelect({ kind: 'flood', properties: feature.properties })}
+            onPress={locationSelectionActive ? undefined : () => onSelect({ kind: 'flood', properties: feature.properties })}
           />
         ))}
 
@@ -415,7 +354,7 @@ function GeoJsonHazardMapComponent({
             strokeOpacity={0.55}
             strokeWidth={1.4}
             fillRule="evenodd"
-            onPress={locationSelectionMode ? undefined : () => onSelect({ kind: 'landslide', properties: feature.properties })}
+            onPress={locationSelectionActive ? undefined : () => onSelect({ kind: 'landslide', properties: feature.properties })}
           />
         ))}
 
@@ -440,7 +379,7 @@ function GeoJsonHazardMapComponent({
             strokeOpacity={0.75}
             strokeWidth={1.1}
             fillRule="evenodd"
-            onPress={locationSelectionMode ? undefined : () => onSelect({ kind: 'barangay', properties: feature.properties })}
+            onPress={locationSelectionActive ? undefined : () => onSelect({ kind: 'barangay', properties: feature.properties })}
           />
         ))}
 
@@ -452,7 +391,7 @@ function GeoJsonHazardMapComponent({
               stroke="#FFFFFF"
               strokeOpacity={0.01}
               strokeWidth={30}
-              onPress={locationSelectionMode ? undefined : () => onSelect({ kind: 'fault', properties: feature.properties, context: fault.data.context })}
+              onPress={locationSelectionActive ? undefined : () => onSelect({ kind: 'fault', properties: feature.properties, context: fault.data.context })}
             />
             <Path
               d={linePath(feature.geometry, projection)}
@@ -461,7 +400,7 @@ function GeoJsonHazardMapComponent({
               strokeWidth={5}
               strokeDasharray="13 9"
               strokeLinecap="round"
-              onPress={locationSelectionMode ? undefined : () => onSelect({ kind: 'fault', properties: feature.properties, context: fault.data.context })}
+              onPress={locationSelectionActive ? undefined : () => onSelect({ kind: 'fault', properties: feature.properties, context: fault.data.context })}
             />
           </G>
         ))}
@@ -483,7 +422,7 @@ function GeoJsonHazardMapComponent({
           return (
             <G
               key={feature.properties.id}
-              onPress={locationSelectionMode ? undefined : () => onSelect({ kind: 'evacuation-center', properties: feature.properties })}>
+              onPress={locationSelectionActive ? undefined : () => onSelect({ kind: 'evacuation-center', properties: feature.properties })}>
               <Circle cx={cx} cy={cy} r={34} fill="#FFFFFF" fillOpacity={0.01} />
               <Circle cx={cx} cy={cy} r={isSelected ? 18 : 15} fill="#FFFFFF" stroke={isSelected ? '#F97316' : '#15803D'} strokeWidth={isSelected ? 5 : 4} />
               <Circle cx={cx} cy={cy} r={5.5} fill={isSelected ? '#F97316' : '#15803D'} />
@@ -497,6 +436,21 @@ function GeoJsonHazardMapComponent({
             <G pointerEvents="none">
               <Circle cx={cx} cy={cy} r={13} fill="#FFFFFF" stroke="#DC2626" strokeWidth={4} />
               <Circle cx={cx} cy={cy} r={5} fill="#DC2626" />
+            </G>
+          );
+        })() : null}
+
+        {floodCheckLocation ? (() => {
+          const [cx, cy] = projection(floodCheckLocation);
+          return (
+            <G pointerEvents="none" testID="flood-check-location-marker">
+              <Path
+                d={`M${cx} ${cy - 19} L${cx + 16} ${cy} L${cx} ${cy + 19} L${cx - 16} ${cy} Z`}
+                fill="#FFFFFF"
+                stroke="#7C3AED"
+                strokeWidth={5}
+              />
+              <Circle cx={cx} cy={cy} r={5.5} fill="#7C3AED" />
             </G>
           );
         })() : null}
