@@ -1,6 +1,32 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { Badge, type BadgeProps } from '@/src/components/ui/Badge';
+import { Card } from '@/src/components/ui/Card';
+import { WarningLevelBadge } from '@/src/features/emergency/components/WarningLevelBadge';
+import { formatWarningDateTime } from '@/src/features/emergency/warningPresentation';
+import { AuthService } from '@/src/services/auth-service';
+import {
+  DrrmIncidentNotificationService,
+  INCIDENT_NOTIFICATIONS_ERROR_MESSAGE,
+} from '@/src/services/drrmIncidentNotifications';
+import {
+  applyWarningReadReceipt,
+  DrrmWarningNotificationsError,
+  DrrmWarningNotificationService,
+  resetCitizenWarningNotificationState,
+  WARNING_NOTIFICATIONS_ERROR_MESSAGE,
+} from '@/src/services/drrmWarningNotifications';
+import type {
+  CitizenIncidentNotification,
+  CitizenIncidentNotificationStatus,
+} from '@/src/types/drrmIncidentNotifications';
+import type {
+  CitizenWarningNotification,
+  CitizenWarningNotificationsResponse,
+} from '@/src/types/drrmWarningNotifications';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -8,15 +34,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Badge, type BadgeProps } from '@/src/components/ui/Badge';
-import {
-  DrrmIncidentNotificationService,
-  INCIDENT_NOTIFICATIONS_ERROR_MESSAGE,
-} from '@/src/services/drrmIncidentNotifications';
-import type {
-  CitizenIncidentNotification,
-  CitizenIncidentNotificationStatus,
-} from '@/src/types/drrmIncidentNotifications';
 import { formatIncidentNotificationTime } from './notificationPresentation';
 
 function getStatusBadgeVariant(
@@ -78,10 +95,7 @@ function NotificationContent({
     return (
       <View style={styles.stateCard} testID={'notifications-empty-state'}>
         <Text style={styles.stateTitle}>No notifications yet</Text>
-        <Text style={styles.stateBody}>
-          Updates about your reported incidents and other connected CIVENTRAL services will appear
-          here.
-        </Text>
+        <Text style={styles.stateBody}>Updates about your reported incidents will appear here.</Text>
       </View>
     );
   }
@@ -102,9 +116,8 @@ function NotificationCard({ notification }: { notification: CitizenIncidentNotif
   return (
     <View
       style={[styles.alertCard, !notification.is_read && styles.unreadAlertCard]}
-      accessibilityLabel={`${notification.title}, ${notification.status_label}, ${
-        notification.is_read ? 'read' : 'unread'
-      }`}>
+      accessibilityLabel={notification.title + ', ' + notification.status_label + ', '
+        + (notification.is_read ? 'read' : 'unread')}>
       <View style={styles.alertTopRow}>
         <Badge label={'DRRM INCIDENT UPDATE'} variant={'info'} />
         <Text style={styles.timestampText}>
@@ -124,7 +137,134 @@ function NotificationCard({ notification }: { notification: CitizenIncidentNotif
   );
 }
 
-export function NotificationsScreen() {
+interface WarningContentProps {
+  feed: CitizenWarningNotificationsResponse | null;
+  isLoading: boolean;
+  loadError: string | null;
+  markReadError: string | null;
+  openingEventId: string | null;
+  onRetry: () => void;
+  onOpen: (notification: CitizenWarningNotification) => void;
+}
+
+function WarningContent({
+  feed,
+  isLoading,
+  loadError,
+  markReadError,
+  openingEventId,
+  onRetry,
+  onOpen,
+}: WarningContentProps) {
+  if (isLoading) {
+    return (
+      <View style={styles.loadingBox} testID={'warning-notifications-loading-state'}>
+        <ActivityIndicator size={'small'} color={'#176B87'} />
+        <Text style={styles.loadingText}>Loading active warning notifications...</Text>
+      </View>
+    );
+  }
+
+  if (loadError || !feed) {
+    return (
+      <View style={styles.stateCard} testID={'warning-notifications-error-state'}>
+        <Text style={styles.stateTitle}>Warning notifications unavailable</Text>
+        <Text style={styles.stateBody}>
+          {loadError || WARNING_NOTIFICATIONS_ERROR_MESSAGE}
+        </Text>
+        <TouchableOpacity style={styles.retryButton} onPress={onRetry} activeOpacity={0.8}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (feed.notifications.length === 0) {
+    return (
+      <View style={styles.stateCard} testID={'warning-notifications-empty-state'}>
+        <Text style={styles.stateTitle}>No active warning notifications</Text>
+        <Text style={styles.stateBody}>Pull down to check for newly activated warnings.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.alertsStack} testID={'warning-notifications-list'}>
+      {markReadError ? <Text style={styles.inlineErrorText}>{markReadError}</Text> : null}
+      {feed.notifications.map((notification) => (
+        <TouchableOpacity
+          key={notification.notification_event_id}
+          testID={'warning-notification-' + notification.notification_event_id}
+          accessibilityRole="button"
+          accessibilityLabel={'Open warning: ' + notification.title + ', '
+            + (notification.is_read ? 'read' : 'unread')}
+          disabled={openingEventId !== null}
+          activeOpacity={0.84}
+          onPress={() => onOpen(notification)}>
+          <Card
+            variant="outlined"
+            style={[styles.warningAlertCard, !notification.is_read && styles.unreadWarningCard]}>
+            <View style={styles.alertTopRow}>
+              <Badge
+                label={notification.is_read ? 'READ' : 'UNREAD'}
+                variant={notification.is_read ? 'neutral' : 'info'}
+              />
+              <Text style={styles.timestampText}>
+                Activated {formatWarningDateTime(notification.activated_at)}
+              </Text>
+            </View>
+            <Text style={styles.alertTitle}>{notification.title}</Text>
+            <Text style={styles.warningHazardLabel}>{notification.hazard_label}</Text>
+            <WarningLevelBadge level={notification.warning_level} />
+            <Text style={styles.alertBody}>{notification.summary}</Text>
+            <Text style={styles.warningAreaText}>
+              Affected areas: {notification.affected_areas.length > 0
+                ? notification.affected_areas.map((area) => area.name).join(', ')
+                : 'No specific affected areas provided'}
+            </Text>
+            {openingEventId === notification.notification_event_id ? (
+              <ActivityIndicator size="small" color="#176B87" />
+            ) : null}
+          </Card>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+function SignInNotificationsState({ expired }: { expired: boolean }) {
+  const router = useRouter();
+  return (
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.headerContainer}>
+          <Text style={styles.headerTitle}>Notifications & Alerts</Text>
+        </View>
+        <View
+          style={styles.stateCard}
+          testID={expired
+            ? 'warning-notifications-session-expired-state'
+            : 'warning-notifications-sign-in-state'}>
+          <Text style={styles.stateTitle}>{expired ? 'Session expired' : 'Sign in required'}</Text>
+          <Text style={styles.stateBody}>
+            {expired
+              ? 'Your session has expired. Sign in again to view your warning notifications.'
+              : 'Sign in to view your warning notifications and incident updates.'}
+          </Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            accessibilityRole="button"
+            onPress={() => router.push('/(auth)' as never)}>
+            <Text style={styles.retryButtonText}>Sign In</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function AuthenticatedNotificationsContent() {
+  const router = useRouter();
   const [notifications, setNotifications] = useState<CitizenIncidentNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -133,8 +273,16 @@ export function NotificationsScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [markReadError, setMarkReadError] = useState<string | null>(null);
   const [shouldMarkRead, setShouldMarkRead] = useState(false);
+  const [warningFeed, setWarningFeed] = useState<CitizenWarningNotificationsResponse | null>(null);
+  const [isWarningLoading, setIsWarningLoading] = useState(true);
+  const [warningLoadError, setWarningLoadError] = useState<string | null>(null);
+  const [warningMarkReadError, setWarningMarkReadError] = useState<string | null>(null);
+  const [openingEventId, setOpeningEventId] = useState<string | null>(null);
+  const lastAutomaticWarningFetchAt = useRef(0);
+  const warningRevision = useRef(0);
 
   const fetchNotifications = useCallback(async () => {
+    if (!AuthService.isCitizenAuthenticated()) return;
     try {
       const response = await DrrmIncidentNotificationService.getCitizenIncidentNotifications();
       setNotifications(response.notifications);
@@ -147,6 +295,47 @@ export function NotificationsScreen() {
       setLoadError(INCIDENT_NOTIFICATIONS_ERROR_MESSAGE);
     }
   }, []);
+
+  const fetchWarnings = useCallback(async () => {
+    if (!AuthService.isCitizenAuthenticated()) return;
+    lastAutomaticWarningFetchAt.current = Date.now();
+    const revision = warningRevision.current;
+    setIsWarningLoading(true);
+    setWarningLoadError(null);
+    try {
+      const response = await DrrmWarningNotificationService.getCitizenWarningNotifications();
+      if (revision !== warningRevision.current) return;
+      setWarningFeed(response);
+      setWarningMarkReadError(null);
+    } catch (error) {
+      if (error instanceof DrrmWarningNotificationsError && error.code === 'AUTH_REQUIRED') {
+        AuthService.clearCurrentUser('expired');
+        return;
+      }
+      if (error instanceof DrrmWarningNotificationsError && error.code === 'SESSION_CHANGED') {
+        return;
+      }
+      if (revision !== warningRevision.current) return;
+      setWarningFeed(null);
+      setWarningLoadError(
+        error instanceof DrrmWarningNotificationsError && error.code === 'FORBIDDEN'
+          ? 'Access to warning notifications was denied for this session.'
+          : WARNING_NOTIFICATIONS_ERROR_MESSAGE,
+      );
+    } finally {
+      if (revision === warningRevision.current) setIsWarningLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    void fetchWarnings();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && Date.now() - lastAutomaticWarningFetchAt.current >= 15_000) {
+        void fetchWarnings();
+      }
+    });
+    return () => subscription.remove();
+  }, [fetchWarnings]));
 
   useEffect(() => {
     let isMounted = true;
@@ -190,14 +379,57 @@ export function NotificationsScreen() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await fetchNotifications();
-    setIsRefreshing(false);
+    try {
+      await Promise.all([fetchWarnings(), fetchNotifications()]);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
-  const handleRetry = async () => {
+  const handleIncidentRetry = async () => {
     setIsLoading(true);
     await fetchNotifications();
     setIsLoading(false);
+  };
+
+  const handleWarningOpen = async (notification: CitizenWarningNotification) => {
+    if (openingEventId !== null || !AuthService.isCitizenAuthenticated()) return;
+    if (!notification.is_read) {
+      setOpeningEventId(notification.notification_event_id);
+      setWarningMarkReadError(null);
+      try {
+        const receipt = await DrrmWarningNotificationService.markCitizenWarningNotificationRead(
+          notification.notification_event_id,
+        );
+        warningRevision.current += 1;
+        setWarningFeed((current) => current ? applyWarningReadReceipt(current, receipt) : null);
+      } catch (error) {
+        if (error instanceof DrrmWarningNotificationsError && error.code === 'AUTH_REQUIRED') {
+          AuthService.clearCurrentUser('expired');
+          return;
+        }
+        if (error instanceof DrrmWarningNotificationsError && error.code === 'SESSION_CHANGED') {
+          return;
+        }
+        if (error instanceof DrrmWarningNotificationsError && error.code === 'NOT_ELIGIBLE') {
+          warningRevision.current += 1;
+          resetCitizenWarningNotificationState();
+          setWarningFeed(null);
+          await fetchWarnings();
+          return;
+        }
+        setWarningMarkReadError(
+          error instanceof DrrmWarningNotificationsError && error.code === 'FORBIDDEN'
+            ? 'Read access was denied. The warning remains unread.'
+            : 'Read status could not be saved. The warning remains unread.',
+        );
+      } finally {
+        setOpeningEventId(null);
+      }
+    }
+    if (AuthService.isCitizenAuthenticated()) {
+      router.push(('/emergency/' + encodeURIComponent(notification.warning_id)) as never);
+    }
   };
 
   return (
@@ -208,36 +440,101 @@ export function NotificationsScreen() {
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
-            onRefresh={handleRefresh}
+            onRefresh={() => void handleRefresh()}
             tintColor={'#176B87'}
           />
         }>
         <View style={styles.headerContainer}>
           <Text style={styles.headerTitle}>Notifications & Alerts</Text>
           <Text style={styles.headerSubtitle}>
-            Secure in-app updates about your reported incidents.
+            Active warnings and updates about your reported incidents.
           </Text>
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>ACTIVE WARNING NOTIFICATIONS</Text>
+          {warningFeed && warningFeed.unread_count > 0 ? (
+            <Text style={styles.unreadSummary}>
+              {warningFeed.unread_count} unread
+            </Text>
+          ) : null}
+        </View>
+        <WarningContent
+          feed={warningFeed}
+          isLoading={isWarningLoading}
+          loadError={warningLoadError}
+          markReadError={warningMarkReadError}
+          openingEventId={openingEventId}
+          onRetry={() => void fetchWarnings()}
+          onOpen={(notification) => void handleWarningOpen(notification)}
+        />
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>INCIDENT UPDATES</Text>
           {unreadCount > 0 ? (
             <Text style={styles.unreadSummary}>
               {unreadCount} unread {unreadCount === 1 ? 'update' : 'updates'}
             </Text>
           ) : null}
         </View>
-
         <NotificationContent
           notifications={notifications}
           isLoading={isLoading && !isRefreshing}
           loadError={loadError}
           markReadError={markReadError}
           hasMore={hasMore}
-          onRetry={handleRetry}
+          onRetry={() => void handleIncidentRetry()}
         />
       </ScrollView>
     </View>
   );
 }
 
+export function NotificationsScreen() {
+  const sessionRevision = useSyncExternalStore(
+    AuthService.subscribeCitizenSession,
+    AuthService.getCitizenSessionRevisionSnapshot,
+    AuthService.getCitizenSessionRevisionSnapshot,
+  );
+  if (!AuthService.isCitizenAuthenticated()) {
+    return <SignInNotificationsState expired={AuthService.getSessionEndReason() === 'expired'} />;
+  }
+  return <AuthenticatedNotificationsContent key={sessionRevision} />;
+}
 const styles = StyleSheet.create({
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 22,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    color: '#475569',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  warningAlertCard: {
+    marginVertical: 0,
+    gap: 8,
+  },
+  unreadWarningCard: {
+    borderColor: '#BAE6FD',
+    backgroundColor: '#F0F9FF',
+  },
+  warningHazardLabel: {
+    color: '#B91C1C',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  warningAreaText: {
+    color: '#475569',
+    fontSize: 12,
+    lineHeight: 18,
+  },
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',

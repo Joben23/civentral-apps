@@ -1,6 +1,7 @@
 import { CitizenUser } from '@/types/citizen';
 import { CITIZEN_API_BASE_URL } from '@/src/config/api';
 import { resetCitizenIncidentNotificationState } from '@/src/services/drrmIncidentNotifications';
+import { resetCitizenWarningNotificationState } from '@/src/services/drrmWarningNotifications';
 
 export interface AuthApiResponse {
   status: 'success' | 'otp_required' | 'error';
@@ -80,15 +81,44 @@ export class AuthService {
   private static currentUserId: number | null = null;
   private static currentUserData: any = null;
   private static pendingRegistrationIdentifier: string | null = null;
+  private static sessionRevision = 0;
+  private static sessionEndReason: 'expired' | null = null;
+  private static sessionListeners = new Set<() => void>();
+
+  static subscribeCitizenSession(listener: () => void): () => void {
+    AuthService.sessionListeners.add(listener);
+    return () => AuthService.sessionListeners.delete(listener);
+  }
+
+  static getCitizenSessionRevisionSnapshot(): number {
+    return AuthService.sessionRevision;
+  }
+
+  static getSessionEndReason(): 'expired' | null {
+    return AuthService.sessionEndReason;
+  }
+
+  static isCitizenAuthenticated(): boolean {
+    return AuthService.currentUserId !== null;
+  }
+
+  private static publishSessionChange(): void {
+    AuthService.sessionRevision += 1;
+    AuthService.sessionListeners.forEach((listener) => listener());
+  }
 
   static setCurrentUser(data: { email?: string; citizen_user_id?: number; user?: any }) {
-    if (data.email) this.currentUserEmail = data.email;
-    if (data.citizen_user_id) this.currentUserId = data.citizen_user_id;
-    if (data.user) {
-      this.currentUserData = data.user;
-      if (data.user.email) this.currentUserEmail = data.user.email;
-      if (data.user.citizen_user_id) this.currentUserId = data.user.citizen_user_id;
-    }
+    const rawId = data.citizen_user_id ?? data.user?.citizen_user_id ?? data.user?.id;
+    const parsedId = typeof rawId === 'number' ? rawId
+      : typeof rawId === 'string' && /^\d+$/.test(rawId) ? Number(rawId) : null;
+    this.currentUserId = parsedId !== null && Number.isSafeInteger(parsedId) && parsedId > 0
+      ? parsedId : null;
+    this.currentUserEmail = data.email ?? data.user?.email ?? null;
+    this.currentUserData = data.user ?? null;
+    this.sessionEndReason = null;
+    resetCitizenIncidentNotificationState();
+    resetCitizenWarningNotificationState();
+    this.publishSessionChange();
   }
 
   static getCurrentUser() {
@@ -99,12 +129,16 @@ export class AuthService {
     };
   }
 
-  static clearCurrentUser() {
+  // This clears app state only; the backend currently has no citizen logout endpoint.
+  static clearCurrentUser(reason: 'signed-out' | 'expired' = 'signed-out') {
     this.currentUserEmail = null;
     this.currentUserId = null;
     this.currentUserData = null;
     this.pendingRegistrationIdentifier = null;
+    this.sessionEndReason = reason === 'expired' ? 'expired' : null;
     resetCitizenIncidentNotificationState();
+    resetCitizenWarningNotificationState();
+    this.publishSessionChange();
   }
 
   static isRegistrationAllowed(identifier: string): boolean {

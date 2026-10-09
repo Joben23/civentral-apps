@@ -2,6 +2,7 @@ import React, { useEffect, useSyncExternalStore } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { AuthService } from '@/src/services/auth-service';
 import {
   getCitizenIncidentNotifications,
   getCitizenIncidentUnreadCountSnapshot,
@@ -19,17 +20,25 @@ export function HeaderBar({
 }: HeaderBarProps) {
   const insets = useSafeAreaInsets();
   const topPadding = Math.max(insets.top, 16);
-  const unreadCount = useSyncExternalStore(
+  const sessionRevision = useSyncExternalStore(
+    AuthService.subscribeCitizenSession,
+    AuthService.getCitizenSessionRevisionSnapshot,
+    AuthService.getCitizenSessionRevisionSnapshot,
+  );
+  const isAuthenticated = AuthService.isCitizenAuthenticated();
+  const incidentUnreadCount = useSyncExternalStore(
     subscribeToCitizenIncidentUnreadCount,
     getCitizenIncidentUnreadCountSnapshot,
     getCitizenIncidentUnreadCountSnapshot,
   );
+  const unreadCount = isAuthenticated ? incidentUnreadCount : 0;
 
   useEffect(() => {
+    if (!isAuthenticated || !AuthService.isCitizenAuthenticated()) return;
     void getCitizenIncidentNotifications().catch(() => {
       // The header stays usable when the authenticated notification source is unavailable.
     });
-  }, []);
+  }, [isAuthenticated, sessionRevision]);
 
   return (
     <View style={[styles.headerContainer, { paddingTop: topPadding }]}>

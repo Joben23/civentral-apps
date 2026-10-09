@@ -26,10 +26,14 @@ function loadTypeScriptModule(relativePath, dependencies = {}) {
   return loadedModule.exports;
 }
 
+let warningResetCalls = 0;
 const auth = loadTypeScriptModule('src/services/auth-service.ts', {
   '@/src/config/api': { CITIZEN_API_BASE_URL: 'https://example.gov.ph/api/citizen' },
   '@/src/services/drrmIncidentNotifications': {
     resetCitizenIncidentNotificationState() {},
+  },
+  '@/src/services/drrmWarningNotifications': {
+    resetCitizenWarningNotificationState() { warningResetCalls += 1; },
   },
 });
 const routing = loadTypeScriptModule('src/features/auth/account-routing.ts');
@@ -250,6 +254,24 @@ async function run() {
     /CIV-2026-00001|CIT-88490|citizen@caloocan\.gov\.ph|Proceed to Dashboard/,
   );
 
+  assert.equal(auth.AuthService.isCitizenAuthenticated(), true);
+  const revisionBeforeSignOut = auth.AuthService.getCitizenSessionRevisionSnapshot();
+  let sessionChanges = 0;
+  const unsubscribe = auth.AuthService.subscribeCitizenSession(() => { sessionChanges += 1; });
+  auth.AuthService.clearCurrentUser('expired');
+  assert.equal(auth.AuthService.isCitizenAuthenticated(), false);
+  assert.equal(auth.AuthService.getCurrentUser().citizen_user_id, null);
+  assert.equal(auth.AuthService.getSessionEndReason(), 'expired');
+  assert.equal(auth.AuthService.getCitizenSessionRevisionSnapshot(), revisionBeforeSignOut + 1);
+  assert.equal(sessionChanges, 1);
+  assert.ok(warningResetCalls >= 4);
+  auth.AuthService.setCurrentUser({ citizen_user_id: 85, email: 'next@example.test' });
+  assert.equal(auth.AuthService.getSessionEndReason(), null);
+  assert.equal(auth.AuthService.getCurrentUser().citizen_user_id, 85);
+  auth.AuthService.clearCurrentUser();
+  assert.equal(auth.AuthService.getSessionEndReason(), null);
+  assert.equal(auth.AuthService.isCitizenAuthenticated(), false);
+  unsubscribe();
   console.log('Citizen authentication flow and security checks passed.');
 }
 
